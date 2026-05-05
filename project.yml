@@ -1,0 +1,47 @@
+name: Node
+options:
+  bundleIdPrefix: com.elisafazzari
+  deploymentTarget:
+    iOS: "17.0"
+  developmentLanguage: en
+
+targets:
+  Node:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    sources:
+      - path: Node
+    info:
+      path: Node/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Node
+        CFBundleShortVersionString: 0.1.0
+        CFBundleVersion: 1
+        UILaunchScreen:
+          UIColorName: AccentColor
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UIRequiredDeviceCapabilities:
+          - armv7
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        ITSAppUsesNonExemptEncryption: false
+        NSCameraUsageDescription: "Node uses the camera so you can post photos and stories to your nodes."
+        NSPhotoLibraryUsageDescription: "Node accesses your photo library so you can share photos and stories with your nodes."
+        NSUserNotificationsUsageDescription: "Node sends notifications so you know when someone in one of your nodes posts something new."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.elisafazzari.node
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "1"
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: "" # TBD: set to Elisa's Apple Team ID
+    dependencies:
+      - package: Supabase
+        product: Supabase
+
+packages:
+  Supabase:
+    url: https://github.com/supabase/supabase-swift
+    from: 2.20.0
