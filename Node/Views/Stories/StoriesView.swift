@@ -1,60 +1,190 @@
 import SwiftUI
 
-/// Stub implementation. Full IG-parity port from Miracles `StoriesView.swift` lands in Phase 4.
-/// What's here: list of active stories with thumbnails, +button to compose.
+/// Stories landing screen for one node. Carousel of author rings (current user first, then others by recency),
+/// tap-to-play opens StoryTrayView. Compose FAB bottom-right. Pull-to-refresh + scenePhase foreground refresh.
+/// Cellular-gated prefetch warms thumbnails on Wi-Fi only.
 struct StoriesView: View {
     let nodeId: UUID
-    @Environment(StoryService.self) private var stories = StoryService.shared
+    @Environment(StoryService.self) private var stories
+    @Environment(AuthService.self) private var auth
+    @Environment(\.scenePhase) private var scenePhase
+
+    @State private var members: [NodeMember] = []
+    @State private var isLoading = false
     @State private var showCompose = false
+    @State private var playingAuthor: NodeMember? = nil
+    @State private var showArchive = false
+
+    private static let dayHeader: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEEE, MMMM d"
+        return f
+    }()
+
+    private var activeStories: [Story] { stories.activeByNodeId[nodeId] ?? [] }
+
+    /// Carousel order: current user first, then authors with active stories (newest-first), then others.
+    private var rankedAuthors: [NodeMember] {
+        let latestByUserId: [UUID: Date] = activeStories.reduce(into: [:]) { acc, s in
+            if let prev = acc[s.authorUserId], prev > s.createdAt { return }
+            acc[s.authorUserId] = s.createdAt
+        }
+        let myId = auth.session?.user.id
+        let me = members.first(where: { $0.user.id == myId })
+        let others = members.filter { $0.user.id != myId }
+        let activeOthers = others
+            .filter { latestByUserId[$0.user.id] != nil }
+            .sorted { (latestByUserId[$0.user.id] ?? .distantPast) > (latestByUserId[$1.user.id] ?? .distantPast) }
+        let inactiveOthers = others.filter { latestByUserId[$0.user.id] == nil }
+        return [me].compactMap { $0 } + activeOthers + inactiveOthers
+    }
+
+    /// Reel for one author, newest-first per Sunzzari S57 + Miracles S9 user decision.
+    private func reel(for author: NodeMember) -> [Story] {
+        activeStories.filter { $0.authorUserId == author.user.id }.sorted { $0.createdAt > $1.createdAt }
+    }
 
     var body: some View {
         NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
-                    let active = stories.activeByNodeId[nodeId] ?? []
-                    ForEach(active) { story in
-                        AsyncImage(url: story.thumbnailURL) { phase in
-                            switch phase {
-                            case .empty: Color.gray.opacity(0.2)
-                            case .success(let img): img.resizable().scaledToFill()
-                            case .failure: Image(systemName: "exclamationmark.triangle")
-                            @unknown default: Color.gray.opacity(0.2)
+            ZStack(alignment: .bottomTrailing) {
+                Color.nodeBackground.ignoresSafeArea()
+                VStack(spacing: 0) {
+                    if isLoading && activeStories.isEmpty {
+                        Spacer()
+                        ProgressView()
+                        Spacer()
+                    } else {
+                        ScrollView {
+                            VStack(alignment: .leading, spacing: 24) {
+                                Text(Self.dayHeader.string(from: Date()))
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 20)
+                                authorCarousel
+                                    .padding(.horizontal, 4)
+                                if activeStories.isEmpty {
+                                    emptyState
+                                } else {
+                                    Button { showArchive = true } label: {
+                                        HStack {
+                                            Image(systemName: "rectangle.stack")
+                                            Text("Archive")
+                                        }
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(Color.nodeAccent)
+                                    }
+                                    .padding(.horizontal, 20)
+                                }
                             }
+                            .padding(.top, 16)
+                            .padding(.bottom, 100)
                         }
-                        .frame(height: 200)
-                        .clipped()
-                        .cornerRadius(12)
+                        .refreshable { await load(force: true) }
                     }
                 }
-                .padding()
+                composeFAB
+                    .padding(.trailing, 20)
+                    .padding(.bottom, 24)
             }
             .navigationTitle("Stories")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showCompose = true } label: { Image(systemName: "plus.circle.fill") }
-                }
+            .navigationDestination(isPresented: $showArchive) {
+                StoryArchiveView(nodeId: nodeId, authors: members)
             }
-            .sheet(isPresented: $showCompose) {
-                StoryComposeView(nodeId: nodeId)
-            }
-            .refreshable { await stories.fetchActive(nodeId: nodeId) }
+        }
+        .sheet(isPresented: $showCompose) {
+            StoryComposeView(nodeId: nodeId, onPosted: { _ in })
+        }
+        .fullScreenCover(item: $playingAuthor) { author in
+            StoryTrayView(
+                authors: rankedAuthors.filter { !reel(for: $0).isEmpty },
+                startingAuthor: author,
+                reelFor: { reel(for: $0) },
+                onDismiss: { playingAuthor = nil }
+            )
+        }
+        .task { await load(force: false) }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { Task { await load(force: false) } }
         }
     }
-}
 
-/// Stub. Full implementation from Miracles `StoryComposeView.swift` lands in Phase 4.
-struct StoryComposeView: View {
-    let nodeId: UUID
-    @Environment(\.dismiss) private var dismiss
-    var body: some View {
-        NavigationStack {
-            VStack {
-                Text("Story composer -- port from Miracles in Phase 4.")
-                    .foregroundStyle(.secondary)
+    private var authorCarousel: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 14) {
+                ForEach(rankedAuthors) { author in
+                    Button {
+                        let isMe = author.user.id == auth.session?.user.id
+                        if isMe && reel(for: author).isEmpty {
+                            showCompose = true
+                        } else if !reel(for: author).isEmpty {
+                            playingAuthor = author
+                        } else {
+                            // No-op for others without stories
+                        }
+                    } label: {
+                        VStack(spacing: 6) {
+                            ZStack {
+                                Circle()
+                                    .strokeBorder(reel(for: author).isEmpty ? Color.nodeBorder : Color.forMembership(hex: author.accentColorHex, fallbackSeed: author.user.id.uuidString), lineWidth: reel(for: author).isEmpty ? 1.5 : 3)
+                                    .frame(width: 72, height: 72)
+                                Circle()
+                                    .fill(Color.forMembership(hex: author.accentColorHex, fallbackSeed: author.user.id.uuidString))
+                                    .frame(width: 60, height: 60)
+                                    .overlay(Text(author.emoji ?? String(author.displayName.prefix(1))).font(.title3.weight(.semibold)).foregroundStyle(.white))
+                                if author.user.id == auth.session?.user.id && reel(for: author).isEmpty {
+                                    Circle()
+                                        .fill(Color.nodeAccent)
+                                        .frame(width: 22, height: 22)
+                                        .overlay(Image(systemName: "plus").font(.caption.weight(.bold)).foregroundStyle(.white))
+                                        .offset(x: 24, y: 24)
+                                }
+                            }
+                            Text(author.displayName)
+                                .font(.caption.weight(.medium))
+                                .lineLimit(1)
+                                .foregroundStyle(Color.nodeText)
+                                .frame(maxWidth: 80)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
             }
-            .navigationTitle("New story")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } } }
+            .padding(.horizontal, 16)
         }
+    }
+
+    private var emptyState: some View {
+        VStack(spacing: 8) {
+            Image(systemName: "circle.dotted")
+                .font(.system(size: 40))
+                .foregroundStyle(.secondary)
+            Text("No stories yet today")
+                .font(.headline)
+            Text("Tap the + below to post the first story.")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.top, 40)
+        .frame(maxWidth: .infinity)
+    }
+
+    private var composeFAB: some View {
+        Button { showCompose = true } label: {
+            Image(systemName: "plus")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 56, height: 56)
+                .background(Circle().fill(Color.nodeAccent))
+                .shadow(radius: 6, y: 2)
+        }
+    }
+
+    private func load(force: Bool) async {
+        isLoading = true
+        async let storiesLoad: () = stories.fetchActive(nodeId: nodeId)
+        async let membersLoad: [NodeMember] = (try? await NodeService.shared.members(of: nodeId)) ?? []
+        _ = await storiesLoad
+        members = await membersLoad
+        isLoading = false
     }
 }

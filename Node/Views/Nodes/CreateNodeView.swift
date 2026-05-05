@@ -76,8 +76,9 @@ struct CreateNodeView: View {
             do {
                 let result = try await nodes.createNode(name: name.trimmingCharacters(in: .whitespaces))
                 self.createdInviteCode = result.inviteCode
+                await PushService.shared.requestAuthorizationIfNeeded()
             } catch {
-                self.error = error.localizedDescription
+                self.error = UserFacingError.message(for: error)
             }
             self.creating = false
         }

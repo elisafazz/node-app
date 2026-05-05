@@ -17,7 +17,7 @@ final class BlockService {
                 .value
             self.blockedUserIds = Set(blocks.map(\.blocked_user_id))
         } catch {
-            print("blocks_load_failed:", error)
+            Log.shared.error("blocks_load_failed", error: error)
         }
     }
 

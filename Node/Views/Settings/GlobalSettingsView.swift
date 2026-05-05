@@ -79,38 +79,6 @@ struct GlobalSettingsView: View {
     }
 }
 
-struct BlockedUsersView: View {
-    @State private var blocked: [AppUser] = []
-
-    var body: some View {
-        List(blocked) { user in
-            HStack {
-                Text(user.displayName)
-                Spacer()
-                Button("Unblock") {
-                    Task { try? await BlockService.shared.unblock(userId: user.id) }
-                }
-                .buttonStyle(.borderless)
-            }
-        }
-        .navigationTitle("Blocked")
-        .task { await load() }
-    }
-
-    private func load() async {
-        await BlockService.shared.loadBlockedUsers()
-        let ids = BlockService.shared.blockedUserIds
-        guard !ids.isEmpty else { blocked = []; return }
-        let users: [AppUser] = (try? await SupabaseService.shared.database
-            .from("users")
-            .select()
-            .in("id", values: ids.map(\.uuidString))
-            .execute()
-            .value) ?? []
-        blocked = users
-    }
-}
-
 struct ReportProblemView: View {
     @State private var reason = ""
     @State private var submitting = false
@@ -147,7 +115,7 @@ struct ReportProblemView: View {
                 feedback = "Report submitted. Thanks."
                 reason = ""
             } catch {
-                feedback = "Could not submit: \(error.localizedDescription)"
+                feedback = "Could not submit. \(UserFacingError.message(for: error))"
             }
             submitting = false
         }

@@ -49,15 +49,14 @@ struct JoinNodeView: View {
         Task {
             do {
                 let result = try await nodes.joinByInviteCode(code)
-                switch result {
-                case .joined: dismiss()
-                case .alreadyMember: feedback = "You're already a member of this node."
-                case .invalidCode: feedback = "Code not found."
-                case .rateLimited: feedback = "Too many attempts. Try again in an hour."
-                case .nodeFull: feedback = "This node is full (max 10 members)."
+                if case .joined = result {
+                    await PushService.shared.requestAuthorizationIfNeeded()
+                    dismiss()
+                } else if let message = UserFacingError.inviteCodeMessage(for: result) {
+                    feedback = message
                 }
             } catch {
-                feedback = "Could not join: \(error.localizedDescription)"
+                feedback = UserFacingError.message(for: error)
             }
             attempting = false
         }

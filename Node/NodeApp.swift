@@ -19,6 +19,10 @@ struct NodeApp: App {
                     if auth.session != nil {
                         await nodes.loadMyNodes()
                         await BlockService.shared.loadBlockedUsers()
+                        // If push permission was previously granted, re-register on launch so the device token stays fresh.
+                        // We do NOT prompt on launch -- that happens in PushService.requestAuthorizationIfNeeded() the
+                        // first time the user creates or joins a node. Apple HIG: ask for permissions in context.
+                        await PushService.shared.refreshRegistrationIfAlreadyAuthorized()
                     }
                 }
         }
@@ -28,12 +32,6 @@ struct NodeApp: App {
 final class NodeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
-
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound]) { granted, _ in
-            if granted {
-                DispatchQueue.main.async { application.registerForRemoteNotifications() }
-            }
-        }
         return true
     }
 
@@ -42,6 +40,15 @@ final class NodeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
     }
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
-        print("apns_register_failed:", error)
+        Log.shared.error("apns_register_failed", error: error)
+    }
+
+    // Allow stories / new-thought banners while the app is in the foreground.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound])
     }
 }

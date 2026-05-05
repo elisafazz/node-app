@@ -44,7 +44,7 @@ final class AuthService: NSObject {
         do {
             try await exchangeAppleCode(authorizationCode)
         } catch {
-            print("apple_code_exchange_failed (non-fatal):", error)
+            Log.shared.error("apple_code_exchange_failed", error: error)
         }
     }
 

@@ -1,7 +1,9 @@
 import Foundation
 import UIKit
+import UserNotifications
 
 /// Pushes APNs device token registration up to the user's memberships, and triggers fan-out for new stories.
+/// Permission is requested in context (per Apple HIG): the first time the user creates or joins a node, not on launch.
 @MainActor
 @Observable
 final class PushService {
@@ -9,27 +11,67 @@ final class PushService {
 
     private(set) var deviceToken: String?
 
-    /// Called from AppDelegate or NodeApp on successful APNs registration.
+    /// Called by AppDelegate after APNs returns a token in response to `registerForRemoteNotifications()`.
     func registerDeviceToken(_ tokenData: Data) async {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
         self.deviceToken = token
+        Log.shared.push("device_token_received")
         await persistTokenToMyMemberships(token)
+    }
+
+    /// In-context prompt: call this from CreateNodeView/JoinNodeView success paths.
+    /// If the user has already responded (granted or denied), this is a no-op.
+    /// If they granted previously, registers for remote notifications to refresh the token.
+    func requestAuthorizationIfNeeded() async {
+        let center = UNUserNotificationCenter.current()
+        let settings = await center.notificationSettings()
+        switch settings.authorizationStatus {
+        case .notDetermined:
+            do {
+                let granted = try await center.requestAuthorization(options: [.alert, .badge, .sound])
+                Log.shared.push(granted ? "permission_granted" : "permission_denied")
+                if granted {
+                    UIApplication.shared.registerForRemoteNotifications()
+                }
+            } catch {
+                Log.shared.error("permission_request_failed", error: error)
+            }
+        case .authorized, .provisional, .ephemeral:
+            UIApplication.shared.registerForRemoteNotifications()
+        case .denied:
+            // User explicitly denied; do not re-prompt. Settings deep-link handled elsewhere if we want to nudge.
+            Log.shared.push("permission_already_denied")
+        @unknown default:
+            break
+        }
+    }
+
+    /// Called on app launch from NodeApp.task. If the user previously granted, this re-registers so the token stays fresh.
+    /// Does NOT trigger the permission dialog.
+    func refreshRegistrationIfAlreadyAuthorized() async {
+        let settings = await UNUserNotificationCenter.current().notificationSettings()
+        guard settings.authorizationStatus == .authorized
+                || settings.authorizationStatus == .provisional
+                || settings.authorizationStatus == .ephemeral
+        else { return }
+        UIApplication.shared.registerForRemoteNotifications()
     }
 
     private func persistTokenToMyMemberships(_ token: String) async {
         struct DeviceTokenPatch: Encodable { let device_token: String }
+        guard let me = AuthService.shared.session?.user.id else { return }
         do {
             try await SupabaseService.shared.database
                 .from("memberships")
                 .update(DeviceTokenPatch(device_token: token))
+                .eq("user_id", value: me.uuidString)
                 .execute()
         } catch {
-            print("device_token_persist_failed:", error)
+            Log.shared.error("device_token_persist_failed", error: error)
         }
     }
 
     func fanOutStoryNotification(nodeId: UUID, authorUserId: UUID, caption: String?) async {
-        // Pulls authorDisplayName lookup is best-effort -- if it fails we still send a generic message
         let title = "Someone posted a story"
         let body = caption?.isEmpty == false ? caption! : "Tap to watch"
 
@@ -37,7 +79,6 @@ final class PushService {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        // Include the user's Supabase JWT so the server can identify the caller (PUSH_FANOUT_SECRET shared by server-to-server mode is alternative)
         if let session = AuthService.shared.session {
             request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
         }
@@ -55,8 +96,7 @@ final class PushService {
         do {
             _ = try await URLSession.shared.data(for: request)
         } catch {
-            // Push fan-out is best-effort. Story still posts even if push fails.
-            print("push_fanout_failed:", error)
+            Log.shared.error("push_fanout_failed", error: error)
         }
     }
 }

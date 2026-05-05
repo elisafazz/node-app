@@ -67,7 +67,7 @@ struct LoginView: View {
     private func handleAppleResult(_ result: Result<ASAuthorization, Error>) {
         switch result {
         case .failure(let err):
-            self.error = "Sign in failed: \(err.localizedDescription)"
+            self.error = "Sign in failed. \(UserFacingError.message(for: err))"
         case .success(let authorization):
             guard
                 let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
@@ -75,21 +75,21 @@ struct LoginView: View {
                 let identityToken = String(data: identityTokenData, encoding: .utf8),
                 let nonce = currentNonce
             else {
-                self.error = "Sign in did not return identity token."
+                self.error = "Sign in did not return an identity token. Try again."
                 return
             }
             guard
                 let codeData = credential.authorizationCode,
                 let authorizationCode = String(data: codeData, encoding: .utf8)
             else {
-                self.error = "Sign in did not return authorization code."
+                self.error = "Sign in did not return an authorization code. Try again."
                 return
             }
             Task {
                 do {
                     try await auth.signInWithApple(identityToken: identityToken, nonce: nonce, authorizationCode: authorizationCode)
                 } catch {
-                    self.error = error.localizedDescription
+                    self.error = UserFacingError.message(for: error)
                 }
             }
         }
