@@ -9,6 +9,7 @@ struct PhotoDetailView: View {
     @State private var showReport = false
     @State private var showBlockConfirm = false
     @State private var deleteConfirm = false
+    @State private var imageLoadId = UUID()
 
     private var author: NodeMember? { members.first { $0.user.id == photo.authorUserId } }
     private var isMyPhoto: Bool { photo.authorUserId == auth.session?.user.id }
@@ -23,10 +24,21 @@ struct PhotoDetailView: View {
                             switch phase {
                             case .success(let img): img.resizable().scaledToFit()
                             case .empty: ProgressView().tint(.white).frame(height: 400).frame(maxWidth: .infinity)
-                            case .failure: VStack { Image(systemName: "exclamationmark.triangle"); Text("Couldn't load") }.foregroundStyle(.white).frame(height: 400)
+                            case .failure:
+                                VStack(spacing: 12) {
+                                    Image(systemName: "exclamationmark.triangle")
+                                    Text("Couldn't load")
+                                    Button("Retry") { imageLoadId = UUID() }
+                                        .buttonStyle(.borderedProminent)
+                                        .tint(.white)
+                                }
+                                .foregroundStyle(.white)
+                                .frame(height: 400)
+                                .frame(maxWidth: .infinity)
                             @unknown default: EmptyView()
                             }
                         }
+                        .id(imageLoadId)
 
                         VStack(alignment: .leading, spacing: 8) {
                             if let author {

@@ -19,12 +19,22 @@ struct AddPhotoView: View {
             Form {
                 Section("Photo") {
                     if let image {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(maxHeight: 280)
-                            .clipShape(RoundedRectangle(cornerRadius: 10))
-                        Button("Replace photo") { pickerItem = nil; self.image = nil }
+                        ZStack {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(maxHeight: 280)
+                                .clipShape(RoundedRectangle(cornerRadius: 10))
+                            if isUploading {
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.black.opacity(0.45))
+                                    .frame(maxHeight: 280)
+                                    .overlay(ProgressView().tint(.white).scaleEffect(1.4))
+                            }
+                        }
+                        if !isUploading {
+                            Button("Replace photo") { pickerItem = nil; self.image = nil }
+                        }
                     } else {
                         PhotosPicker(selection: $pickerItem, matching: .images) {
                             Label("Pick a photo", systemImage: "photo.badge.plus")
