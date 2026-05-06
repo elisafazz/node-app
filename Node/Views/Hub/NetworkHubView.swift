@@ -9,6 +9,7 @@ struct NetworkHubView: View {
     @State private var showBoop = false
     @State private var showMeeting = false
     @State private var pulse = false
+    @State private var playingStory: Story?
 
     var body: some View {
         NavigationStack {
@@ -234,10 +235,39 @@ struct NetworkHubView: View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 12) {
                 ForEach(stories.allVisible.prefix(10)) { story in
-                    StoryThumbnailCell(story: story)
+                    Button { playingStory = story } label: {
+                        StoryThumbnailCell(story: story)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 16)
+        }
+        .fullScreenCover(item: $playingStory) { story in
+            hubStoryViewer(story: story)
+        }
+    }
+
+    @ViewBuilder
+    private func hubStoryViewer(story: Story) -> some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+            AsyncImage(url: story.fullURL) { phase in
+                switch phase {
+                case .success(let img): img.resizable().scaledToFit()
+                default: ProgressView().tint(.white)
+                }
+            }
+            Button { playingStory = nil } label: {
+                Image(systemName: "xmark")
+                    .font(.title3)
+                    .padding(12)
+                    .background(Color.black.opacity(0.5))
+                    .clipShape(Circle())
+                    .foregroundStyle(.white)
+            }
+            .padding()
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         }
     }
 

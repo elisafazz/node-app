@@ -56,6 +56,16 @@ struct GlobalSettingsView: View {
     }
 
     private func saveProfile() {
+        let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            saveError = "Display name can't be empty."
+            return
+        }
+        guard trimmed.count <= 50 else {
+            saveError = "Display name must be 50 characters or fewer."
+            return
+        }
+        displayName = trimmed
         saving = true
         saveError = nil
         Task {
@@ -65,7 +75,7 @@ struct GlobalSettingsView: View {
             do {
                 try await SupabaseService.shared.database
                     .from("users")
-                    .update(UserPatch(display_name: displayName))
+                    .update(UserPatch(display_name: trimmed))
                     .eq("id", value: userId)
                     .execute()
                 try await auth.fetchProfile()
