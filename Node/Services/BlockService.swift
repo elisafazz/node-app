@@ -24,9 +24,10 @@ final class BlockService {
     func block(userId: UUID) async throws {
         struct BlockInsert: Encodable { let blocker_user_id: UUID; let blocked_user_id: UUID }
         guard let me = AuthService.shared.session?.user.id else { return }
+        guard !blockedUserIds.contains(userId) else { return }
         try await SupabaseService.shared.database
             .from("blocks")
-            .insert(BlockInsert(blocker_user_id: me, blocked_user_id: userId))
+            .upsert(BlockInsert(blocker_user_id: me, blocked_user_id: userId), onConflict: "blocker_user_id,blocked_user_id")
             .execute()
         await loadBlockedUsers()
     }

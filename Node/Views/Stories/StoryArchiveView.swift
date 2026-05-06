@@ -5,6 +5,7 @@ struct StoryArchiveView: View {
     let nodeId: UUID
     let authors: [NodeMember]
     @Environment(StoryService.self) private var stories
+    @Environment(BlockService.self) private var blocks
 
     @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
     @State private var loadingYears: Set<Int> = []
@@ -22,7 +23,9 @@ struct StoryArchiveView: View {
     }
 
     private var key: String { "\(nodeId.uuidString)-\(selectedYear)" }
-    private var yearStories: [Story] { stories.archiveByNodeIdYear[key] ?? [] }
+    private var yearStories: [Story] {
+        (stories.archiveByNodeIdYear[key] ?? []).filter { !blocks.isBlocked($0.authorUserId) }
+    }
 
     private var byDay: [(date: Date, stories: [Story])] {
         let cal = Calendar.current

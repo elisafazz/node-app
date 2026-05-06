@@ -7,6 +7,7 @@ struct PhotoDetailView: View {
     @Environment(AuthService.self) private var auth
     @State private var showEdit = false
     @State private var showReport = false
+    @State private var showBlockConfirm = false
     @State private var deleteConfirm = false
 
     private var author: NodeMember? { members.first { $0.user.id == photo.authorUserId } }
@@ -68,6 +69,9 @@ struct PhotoDetailView: View {
                             Button("Delete", systemImage: "trash", role: .destructive) { deleteConfirm = true }
                         } else {
                             Button("Report", systemImage: "flag") { showReport = true }
+                            if let author {
+                                Button("Block \(author.displayName)", systemImage: "person.slash", role: .destructive) { showBlockConfirm = true }
+                            }
                         }
                     } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.white) }
                 }
@@ -84,6 +88,23 @@ struct PhotoDetailView: View {
                         dismiss()
                     }
                 }
+            }
+            .confirmationDialog(
+                author.map { "Block \($0.displayName)?" } ?? "",
+                isPresented: $showBlockConfirm,
+                titleVisibility: .visible
+            ) {
+                Button("Block", role: .destructive) {
+                    if let author {
+                        Task {
+                            try? await BlockService.shared.block(userId: author.user.id)
+                            dismiss()
+                        }
+                    }
+                }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Their content will be hidden across every node you share. They won't be notified.")
             }
         }
     }

@@ -132,7 +132,7 @@ struct StoryPlayerView: View {
             }
             .statusBarHidden(true)
         }
-        .sheet(isPresented: $showReport) {
+        .sheet(isPresented: $showReport, onDismiss: { isPaused = showBlockConfirm }) {
             if let story = currentStory {
                 ReportSheet(targetKind: .story, targetId: story.id, nodeId: story.nodeId)
             }
@@ -143,11 +143,17 @@ struct StoryPlayerView: View {
             titleVisibility: .visible
         ) {
             Button("Block", role: .destructive) {
-                Task { try? await BlockService.shared.block(userId: author.user.id) }
+                Task {
+                    try? await BlockService.shared.block(userId: author.user.id)
+                    onDismiss()
+                }
             }
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Their content will be hidden across every node you share. They won't be notified.")
+        }
+        .onChange(of: showBlockConfirm) { _, new in
+            if !new { isPaused = showReport }
         }
     }
 
