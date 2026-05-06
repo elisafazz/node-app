@@ -5,6 +5,7 @@ import SwiftUI
 struct GalleryView: View {
     let nodeId: UUID
     @Environment(PhotoService.self) private var photos
+    @Environment(BlockService.self) private var blocks
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var selectedPhoto: Photo?
@@ -13,7 +14,9 @@ struct GalleryView: View {
 
     private let columns = [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)]
 
-    private var nodePhotos: [Photo] { photos.photosByNodeId[nodeId] ?? [] }
+    private var nodePhotos: [Photo] {
+        (photos.photosByNodeId[nodeId] ?? []).filter { !blocks.isBlocked($0.authorUserId) }
+    }
 
     var body: some View {
         NavigationStack {

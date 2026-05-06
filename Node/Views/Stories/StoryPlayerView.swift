@@ -13,10 +13,13 @@ struct StoryPlayerView: View {
     var onRequestPrevious: (() -> Void)? = nil
     var isActive: Bool = true
 
+    @Environment(AuthService.self) private var auth
     @State private var currentIndex: Int = 0
     @State private var progress: Double = 0
     @State private var isPaused: Bool = false
     @State private var prefetchedURLs: Set<URL> = []
+    @State private var showReport = false
+    @State private var showBlockConfirm = false
 
     private let storyDuration: TimeInterval = 5.0
     private let tickInterval: TimeInterval = 0.05
@@ -129,6 +132,23 @@ struct StoryPlayerView: View {
             }
             .statusBarHidden(true)
         }
+        .sheet(isPresented: $showReport) {
+            if let story = currentStory {
+                ReportSheet(targetKind: .story, targetId: story.id, nodeId: story.nodeId)
+            }
+        }
+        .confirmationDialog(
+            "Block \(author.displayName)?",
+            isPresented: $showBlockConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Block", role: .destructive) {
+                Task { try? await BlockService.shared.block(userId: author.user.id) }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Their content will be hidden across every node you share. They won't be notified.")
+        }
     }
 
     private struct PlayKey: Hashable {
@@ -175,6 +195,20 @@ struct StoryPlayerView: View {
             }
 
             Spacer()
+
+            if author.user.id != auth.session?.user.id {
+                Menu {
+                    Button("Report story", systemImage: "flag") { showReport = true; isPaused = true }
+                    Button("Block \(author.displayName)", systemImage: "person.slash", role: .destructive) { showBlockConfirm = true; isPaused = true }
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(8)
+                        .background(Color.black.opacity(0.35))
+                        .clipShape(Circle())
+                }
+            }
 
             Button(action: onDismiss) {
                 Image(systemName: "xmark")

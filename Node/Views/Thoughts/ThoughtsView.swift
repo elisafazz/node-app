@@ -3,9 +3,12 @@ import SwiftUI
 struct ThoughtsView: View {
     let nodeId: UUID
     @Environment(ThoughtService.self) private var thoughts
+    @Environment(BlockService.self) private var blocks
     @Environment(\.scenePhase) private var scenePhase
     @State private var newThought = ""
     @State private var members: [NodeMember] = []
+    @State private var reportTarget: Thought?
+    @State private var blockTarget: NodeMember?
     @State private var error: String?
     @State private var posting = false
 
@@ -14,7 +17,7 @@ struct ThoughtsView: View {
             VStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        let nodeThoughts = thoughts.thoughtsByNodeId[nodeId] ?? []
+                        let nodeThoughts = (thoughts.thoughtsByNodeId[nodeId] ?? []).filter { !blocks.isBlocked($0.authorUserId) }
                         if nodeThoughts.isEmpty {
                             emptyState
                         } else {
@@ -65,6 +68,24 @@ struct ThoughtsView: View {
             }
             .navigationTitle("Thoughts")
             .refreshable { await refresh() }
+            .sheet(item: $reportTarget) { thought in
+                ReportSheet(targetKind: .thought, targetId: thought.id, nodeId: nodeId)
+            }
+            .confirmationDialog(
+                blockTarget.map { "Block \($0.displayName)?" } ?? "",
+                isPresented: Binding(get: { blockTarget != nil }, set: { if !$0 { blockTarget = nil } }),
+                titleVisibility: .visible
+            ) {
+                Button("Block", role: .destructive) {
+                    if let target = blockTarget {
+                        Task { try? await BlockService.shared.block(userId: target.user.id) }
+                    }
+                    blockTarget = nil
+                }
+                Button("Cancel", role: .cancel) { blockTarget = nil }
+            } message: {
+                Text("Their content will be hidden across every node you share. They won't be notified.")
+            }
         }
         .task { await refresh() }
         .onChange(of: scenePhase) { _, phase in
@@ -106,6 +127,19 @@ struct ThoughtsView: View {
                     Task { try? await ThoughtService.shared.deleteThought(thought) }
                 } label: {
                     Label("Delete", systemImage: "trash")
+                }
+            } else {
+                Button {
+                    reportTarget = thought
+                } label: {
+                    Label("Report", systemImage: "flag")
+                }
+                if let author {
+                    Button(role: .destructive) {
+                        blockTarget = author
+                    } label: {
+                        Label("Block \(author.displayName)", systemImage: "person.slash")
+                    }
                 }
             }
         }

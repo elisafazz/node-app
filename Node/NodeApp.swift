@@ -11,6 +11,7 @@ struct NodeApp: App {
     @State private var stories = StoryService.shared
     @State private var photos = PhotoService.shared
     @State private var thoughts = ThoughtService.shared
+    @State private var blocks = BlockService.shared
 
     var body: some Scene {
         WindowGroup {
@@ -20,6 +21,7 @@ struct NodeApp: App {
                 .environment(stories)
                 .environment(photos)
                 .environment(thoughts)
+                .environment(blocks)
                 .task {
                     await auth.bootstrap()
                     if auth.session != nil {

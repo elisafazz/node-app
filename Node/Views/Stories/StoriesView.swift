@@ -8,6 +8,7 @@ struct StoriesView: View {
     let nodeId: UUID
     @Environment(StoryService.self) private var stories
     @Environment(AuthService.self) private var auth
+    @Environment(BlockService.self) private var blocks
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var members: [NodeMember] = []
@@ -22,9 +23,12 @@ struct StoriesView: View {
         return f
     }()
 
-    private var activeStories: [Story] { stories.activeByNodeId[nodeId] ?? [] }
+    private var activeStories: [Story] {
+        (stories.activeByNodeId[nodeId] ?? []).filter { !blocks.isBlocked($0.authorUserId) }
+    }
 
     /// Carousel order: current user first, then authors with active stories (newest-first), then others.
+    /// Blocked users are excluded from the carousel entirely.
     private var rankedAuthors: [NodeMember] {
         let latestByUserId: [UUID: Date] = activeStories.reduce(into: [:]) { acc, s in
             if let prev = acc[s.authorUserId], prev > s.createdAt { return }
@@ -32,7 +36,7 @@ struct StoriesView: View {
         }
         let myId = auth.session?.user.id
         let me = members.first(where: { $0.user.id == myId })
-        let others = members.filter { $0.user.id != myId }
+        let others = members.filter { $0.user.id != myId && !blocks.isBlocked($0.user.id) }
         let activeOthers = others
             .filter { latestByUserId[$0.user.id] != nil }
             .sorted { (latestByUserId[$0.user.id] ?? .distantPast) > (latestByUserId[$1.user.id] ?? .distantPast) }

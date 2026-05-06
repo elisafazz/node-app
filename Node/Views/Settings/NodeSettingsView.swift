@@ -100,10 +100,14 @@ struct NodeSettingsView: View {
 
 struct NodeMembersView: View {
     let nodeId: UUID
+    @Environment(AuthService.self) private var auth
     @State private var members: [NodeMember] = []
+    @State private var reportTarget: NodeMember?
+    @State private var blockTarget: NodeMember?
 
     var body: some View {
         List(members) { member in
+            let isMe = member.user.id == auth.session?.user.id
             HStack(spacing: 12) {
                 Circle()
                     .fill(Color.forMembership(hex: member.accentColorHex, fallbackSeed: member.id.uuidString))
@@ -113,11 +117,38 @@ struct NodeMembersView: View {
                     Text(member.displayName).font(.body)
                     Text(member.membership.role.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
                 }
+                Spacer()
+                if !isMe {
+                    Menu {
+                        Button("Report", systemImage: "flag") { reportTarget = member }
+                        Button("Block", systemImage: "person.slash", role: .destructive) { blockTarget = member }
+                    } label: {
+                        Image(systemName: "ellipsis").foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .navigationTitle("Members")
         .task {
             members = (try? await NodeService.shared.members(of: nodeId)) ?? []
+        }
+        .sheet(item: $reportTarget) { member in
+            ReportSheet(targetKind: .user, targetId: member.user.id, nodeId: nodeId)
+        }
+        .confirmationDialog(
+            blockTarget.map { "Block \($0.displayName)?" } ?? "",
+            isPresented: Binding(get: { blockTarget != nil }, set: { if !$0 { blockTarget = nil } }),
+            titleVisibility: .visible
+        ) {
+            Button("Block", role: .destructive) {
+                if let target = blockTarget {
+                    Task { try? await BlockService.shared.block(userId: target.user.id) }
+                }
+                blockTarget = nil
+            }
+            Button("Cancel", role: .cancel) { blockTarget = nil }
+        } message: {
+            Text("Their content will be hidden across every node you share. They won't be notified.")
         }
     }
 }
