@@ -195,6 +195,7 @@ struct StoryPlayerView: View {
 
     /// Wall-clock-anchored progress loop. Pause works by accumulating paused time and subtracting from elapsed-since-start.
     /// Resume-on-swipe-back: anchor startDate so elapsed equals saved progress, bar continues smoothly.
+    @MainActor
     private func runProgressLoop() async {
         if progress >= 1.0 { progress = 0 }
         let anchor = progress
