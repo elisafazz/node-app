@@ -16,7 +16,7 @@ struct RootView: View {
                     loadingState
                 }
             } else {
-                MyNodesView()
+                mainTabView
             }
         }
         .animation(.easeInOut, value: auth.session?.accessToken)
@@ -24,6 +24,20 @@ struct RootView: View {
             guard auth.session != nil, auth.profile == nil else { return }
             await loadProfile()
         }
+    }
+
+    private var mainTabView: some View {
+        TabView {
+            NetworkHubView()
+                .tabItem { Label("Home", systemImage: "house") }
+            MyNodesView()
+                .tabItem { Label("Nodes", systemImage: "circle.hexagongrid") }
+            MeetingsListView()
+                .tabItem { Label("Calendar", systemImage: "calendar") }
+            GlobalSettingsView()
+                .tabItem { Label("Profile", systemImage: "person") }
+        }
+        .tint(Color.nodeBrand)
     }
 
     private var loadingState: some View {
@@ -48,11 +62,13 @@ struct RootView: View {
                     Task { await loadProfile() }
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(Color.nodeBrand)
                 .disabled(retrying)
                 Button("Sign out") {
                     Task { try? await auth.signOut() }
                 }
                 .buttonStyle(.bordered)
+                .tint(Color.nodeBrand)
             }
         }
     }

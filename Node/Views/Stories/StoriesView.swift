@@ -97,7 +97,7 @@ struct StoriesView: View {
             }
         }
         .sheet(isPresented: $showCompose) {
-            StoryComposeView(nodeId: nodeId, onPosted: { _ in })
+            StoryComposeView(defaultNodeId: nodeId, onPosted: { _ in })
         }
         .fullScreenCover(item: $playingAuthor) { author in
             // Self is excluded from the swipe carousel per user spec: the

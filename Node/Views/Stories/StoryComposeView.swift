@@ -2,30 +2,29 @@ import SwiftUI
 import PhotosUI
 import UIKit
 
-/// Ported from Miracles `StoryComposeView`. PhotosPicker -> Cloudinary upload -> Supabase insert -> push fan-out.
+/// Camera-first compose view with cross-node posting (ADR-012).
+/// Pass a defaultNodeId to pre-select one node; nil pre-selects all nodes (Hub flow).
 struct StoryComposeView: View {
-    let nodeId: UUID
+    let defaultNodeId: UUID?
     let onPosted: ((Story) -> Void)?
     @Environment(\.dismiss) private var dismiss
     @Environment(AuthService.self) private var auth
+    @Environment(NodeService.self) private var nodes
 
-    init(nodeId: UUID, onPosted: ((Story) -> Void)? = nil) {
-        self.nodeId = nodeId
+    init(defaultNodeId: UUID? = nil, onPosted: ((Story) -> Void)? = nil) {
+        self.defaultNodeId = defaultNodeId
         self.onPosted = onPosted
     }
 
     @State private var pickerItem: PhotosPickerItem?
     @State private var image: UIImage?
     @State private var caption: String = ""
+    @State private var selectedNodeIds: Set<UUID> = []
     @State private var isPosting = false
     @State private var errorMessage: String?
-    // Source-choice state. Simulator has no camera, so isSourceTypeAvailable
-    // returns false there and the dialog only shows "Choose from Library".
     @State private var showSourceChoice = false
     @State private var showCamera = false
     @State private var showLibrary = false
-    // One-shot guard: open the camera automatically the first time the sheet
-    // appears (Snap-style camera-first compose).
     @State private var didAutoLaunchCamera = false
 
     var body: some View {
@@ -37,6 +36,7 @@ struct StoryComposeView: View {
                         photoArea
                         if image != nil {
                             captionField
+                            nodeSelector
                         }
                         if let errorMessage {
                             Text(errorMessage)
@@ -60,14 +60,20 @@ struct StoryComposeView: View {
                     } else {
                         Button("Post") { Task { await post() } }
                             .fontWeight(.semibold)
-                            .disabled(image == nil)
+                            .disabled(image == nil || selectedNodeIds.isEmpty)
                     }
                 }
             }
             .task {
-                // Camera-first compose: open the camera as soon as the sheet
-                // appears. Cancel from the camera returns to the empty
-                // placeholder, where a tap gives Take Photo / Choose from Library.
+                // Initialize selected nodes once the node list is available.
+                if selectedNodeIds.isEmpty {
+                    if let defaultNodeId, nodes.myNodes.contains(where: { $0.id == defaultNodeId }) {
+                        selectedNodeIds = [defaultNodeId]
+                    } else {
+                        selectedNodeIds = Set(nodes.myNodes.map(\.id))
+                    }
+                }
+                // Camera-first: open camera automatically on first appearance if available.
                 guard !didAutoLaunchCamera,
                       image == nil,
                       UIImagePickerController.isSourceTypeAvailable(.camera) else { return }
@@ -76,6 +82,8 @@ struct StoryComposeView: View {
             }
         }
     }
+
+    // MARK: - Photo area
 
     private var photoArea: some View {
         ZStack {
@@ -156,6 +164,8 @@ struct StoryComposeView: View {
         }
     }
 
+    // MARK: - Caption
+
     private var captionField: some View {
         VStack(alignment: .leading, spacing: 6) {
             Label("Caption", systemImage: "text.bubble")
@@ -168,6 +178,70 @@ struct StoryComposeView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
         }
     }
+
+    // MARK: - Node selector
+
+    private var nodeSelector: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label("Post to", systemImage: "circle.hexagongrid")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            if nodes.myNodes.count <= 1 {
+                // Single-node: nothing to pick, just show which node
+                if let node = nodes.myNodes.first {
+                    nodePill(node, forced: true)
+                }
+            } else {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 8) {
+                        ForEach(nodes.myNodes) { node in
+                            nodePill(node, forced: false)
+                        }
+                    }
+                    .padding(.horizontal, 2)
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+    }
+
+    private func nodePill(_ node: NodeRecord, forced: Bool) -> some View {
+        let isSelected = selectedNodeIds.contains(node.id)
+        let m = nodes.myMembershipsByNodeId[node.id]
+        let label = m?.perNodeDisplayName ?? node.name
+        return Button {
+            if forced { return }
+            // Prevent deselecting the last selected node
+            if isSelected && selectedNodeIds.count == 1 { return }
+            if isSelected {
+                selectedNodeIds.remove(node.id)
+            } else {
+                selectedNodeIds.insert(node.id)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .font(.system(size: 14))
+                Text(label)
+                    .font(.subheadline.weight(.medium))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(isSelected ? .white : Color.nodeBrand)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+            .background(
+                isSelected ? Color.nodeBrand : Color.nodeSurface,
+                in: Capsule()
+            )
+            .overlay(
+                Capsule().stroke(Color.nodeBrand.opacity(isSelected ? 0 : 0.5), lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+        .animation(.easeInOut(duration: 0.15), value: isSelected)
+    }
+
+    // MARK: - Helpers
 
     private func loadPicked(_ item: PhotosPickerItem?) async {
         guard let item else { return }
@@ -187,19 +261,20 @@ struct StoryComposeView: View {
     }
 
     private func post() async {
-        guard let image, let me = auth.session?.user.id else { return }
+        guard let image else { return }
+        guard !selectedNodeIds.isEmpty else { return }
         isPosting = true
         errorMessage = nil
         defer { isPosting = false }
 
         do {
-            let publicId = try await CloudinaryService.shared.upload(image: image, kind: .story, nodeId: nodeId)
+            let publicId = try await CloudinaryService.shared.upload(image: image, kind: .story)
             let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
             let story = try await StoryService.shared.createStory(
-                nodeId: nodeId,
-                authorUserId: me,
+                nodeIds: Array(selectedNodeIds),
                 cloudinaryPublicId: publicId,
-                caption: trimmedCaption.isEmpty ? nil : trimmedCaption
+                caption: trimmedCaption.isEmpty ? nil : trimmedCaption,
+                originNodeId: defaultNodeId
             )
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onPosted?(story)
@@ -235,7 +310,8 @@ private struct CameraPicker: UIViewControllerRepresentable {
         init(_ parent: CameraPicker) { self.parent = parent }
 
         func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            parent.onCaptured(info[.originalImage] as? UIImage)
+            let img = info[.originalImage] as? UIImage
+            parent.onCaptured(img)
             parent.dismiss()
         }
 

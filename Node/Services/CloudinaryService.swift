@@ -39,8 +39,9 @@ final class CloudinaryService {
         let secure_url: String
     }
 
-    /// Uploads a UIImage to Cloudinary scoped to a node folder. Returns the cloudinary public id (used in Story/Photo records).
-    func upload(image: UIImage, kind: Kind, nodeId: UUID, jpegQuality: CGFloat = 0.85) async throws -> String {
+    /// Uploads a UIImage to Cloudinary. Stories go to `user/{author_user_id}/stories/` (cross-node, ADR-012),
+    /// photos to `node/{node_id}/photos/`. `nodeId` required for photos, ignored for stories.
+    func upload(image: UIImage, kind: Kind, nodeId: UUID? = nil, jpegQuality: CGFloat = 0.85) async throws -> String {
         let signature = try await fetchSignature(kind: kind, nodeId: nodeId)
         guard let imageData = image.jpegData(compressionQuality: jpegQuality) else {
             throw CloudinaryError.imageEncodingFailed
@@ -48,8 +49,9 @@ final class CloudinaryService {
         return try await postMultipart(imageData: imageData, signature: signature)
     }
 
-    private func fetchSignature(kind: Kind, nodeId: UUID) async throws -> UploadSignature {
-        let body: [String: String] = ["node_id": nodeId.uuidString, "kind": kind.rawValue]
+    private func fetchSignature(kind: Kind, nodeId: UUID?) async throws -> UploadSignature {
+        var body: [String: String] = ["kind": kind.rawValue]
+        if let nodeId { body["node_id"] = nodeId.uuidString }
         let result: UploadSignature = try await SupabaseService.shared.functions.invoke(
             "cloudinary-sign",
             options: .init(body: body)

@@ -71,17 +71,9 @@ final class PushService {
         }
     }
 
-    func fanOutStoryNotification(nodeId: UUID, authorUserId: UUID, caption: String?) async {
+    func fanOutStoryNotification(nodeIds: [UUID], authorUserId: UUID, caption: String?) async {
         let title = "Someone posted a story"
         let body = caption?.isEmpty == false ? caption! : "Tap to watch"
-
-        var request = URLRequest(url: Constants.Backend.pushFanoutURL)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        if let session = AuthService.shared.session {
-            request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
-        }
 
         struct PushBody: Encodable {
             let node_id: UUID
@@ -90,13 +82,20 @@ final class PushService {
             let body: String
             let category: String
         }
-        let payload = PushBody(node_id: nodeId, author_user_id: authorUserId, title: title, body: body, category: "node-story")
-        request.httpBody = try? JSONEncoder().encode(payload)
-
-        do {
-            _ = try await URLSession.shared.data(for: request)
-        } catch {
-            Log.shared.error("push_fanout_failed", error: error)
+        for nodeId in nodeIds {
+            var request = URLRequest(url: Constants.Backend.pushFanoutURL)
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            if let session = AuthService.shared.session {
+                request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+            }
+            let payload = PushBody(node_id: nodeId, author_user_id: authorUserId, title: title, body: body, category: "node-story")
+            request.httpBody = try? JSONEncoder().encode(payload)
+            do {
+                _ = try await URLSession.shared.data(for: request)
+            } catch {
+                Log.shared.error("push_fanout_failed", error: error)
+            }
         }
     }
 }

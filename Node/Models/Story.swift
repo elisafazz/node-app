@@ -1,8 +1,11 @@
 import Foundation
 
+/// A Story is now author-owned and visible across N nodes via the `story_visibility` junction
+/// (see ADR-012). The DB column `node_id` was renamed to `origin_node_id` in migration 0002 --
+/// it's nullable telemetry for "where compose was launched from", not a visibility scope.
 struct Story: Identifiable, Codable, Hashable, Sendable {
     let id: UUID
-    let nodeId: UUID
+    let originNodeId: UUID?
     let authorUserId: UUID
     let cloudinaryPublicId: String
     var caption: String?
@@ -11,7 +14,7 @@ struct Story: Identifiable, Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id
-        case nodeId = "node_id"
+        case originNodeId = "origin_node_id"
         case authorUserId = "author_user_id"
         case cloudinaryPublicId = "cloudinary_public_id"
         case caption

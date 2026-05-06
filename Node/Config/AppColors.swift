@@ -7,18 +7,37 @@ import UIKit
 // Uses SwiftUI / UIKit semantic colors so light/dark mode adapt automatically.
 extension Color {
     #if canImport(UIKit)
-    static let nodeBackground = Color(uiColor: .systemBackground)
-    static let nodeSurface = Color(uiColor: .secondarySystemBackground)
+    /// Warm cream #FBF6EE in light mode; system background in dark mode.
+    static let nodeBackground = Color(uiColor: UIColor(dynamicProvider: { traits in
+        traits.userInterfaceStyle == .dark
+            ? .systemBackground
+            : UIColor(red: 0.984, green: 0.965, blue: 0.937, alpha: 1)
+    }))
+    static let nodeSurface = Color(uiColor: UIColor(dynamicProvider: { traits in
+        traits.userInterfaceStyle == .dark
+            ? .secondarySystemBackground
+            : UIColor(red: 0.957, green: 0.937, blue: 0.910, alpha: 1)
+    }))
     static let nodeBorder = Color(uiColor: .separator)
     #else
-    static let nodeBackground = Color.white
-    static let nodeSurface = Color.gray.opacity(0.1)
+    static let nodeBackground = Color(red: 0.984, green: 0.965, blue: 0.937)
+    static let nodeSurface = Color(red: 0.957, green: 0.937, blue: 0.910)
     static let nodeBorder = Color.gray.opacity(0.3)
     #endif
 
     static let nodeText = Color.primary
     static let nodeTextSubtle = Color.secondary
     static let nodeAccent = Color.accentColor
+
+    /// Primary brand accent from the Stitch design language: warm coral/red-orange used on the
+    /// "Node" wordmark, the create-node + button, the floating action button, and active tab states.
+    /// Hex ~#E94B26.
+    static let nodeBrand = Color(red: 0.914, green: 0.294, blue: 0.149)
+
+    /// Cover-art logo color (teal ~#2A7A8C). Reserved for the brand mark / app icon contexts only;
+    /// the UI accent throughout the app is `nodeBrand` (warm coral). Kept available so logo
+    /// renderings stay consistent with the cover art.
+    static let nodeLogoTeal = Color(red: 0.165, green: 0.478, blue: 0.549)
 
     /// Resolve a per-node accent color from the membership override hex or a deterministic fallback per user-in-node.
     static func forMembership(hex: String?, fallbackSeed: String) -> Color {

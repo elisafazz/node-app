@@ -134,7 +134,7 @@ struct StoryPlayerView: View {
         }
         .sheet(isPresented: $showReport, onDismiss: { isPaused = showBlockConfirm }) {
             if let story = currentStory {
-                ReportSheet(targetKind: .story, targetId: story.id, nodeId: story.nodeId)
+                ReportSheet(targetKind: .story, targetId: story.id, nodeId: story.originNodeId)
             }
         }
         .confirmationDialog(
