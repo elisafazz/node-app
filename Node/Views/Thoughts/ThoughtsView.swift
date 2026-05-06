@@ -29,6 +29,7 @@ struct ThoughtsView: View {
                     }
                     .padding()
                 }
+                .scrollDismissesKeyboard(.interactively)
 
                 if let error {
                     Text(error)

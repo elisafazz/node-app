@@ -144,10 +144,27 @@ struct RootView: View {
         retrying = true
         defer { retrying = false }
         do {
-            try await auth.fetchProfile()
+            // 15-second timeout prevents the "Signing you in" spinner from hanging forever
+            // on a broken connection where URLSession never delivers an error.
+            try await withTimeout(seconds: 15) {
+                try await auth.fetchProfile()
+            }
             profileLoadFailed = false
         } catch {
             profileLoadFailed = true
+        }
+    }
+
+    private func withTimeout<T: Sendable>(seconds: Double, _ work: @escaping @Sendable () async throws -> T) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await work() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw CancellationError()
+            }
+            let result = try await group.next()!
+            group.cancelAll()
+            return result
         }
     }
 }

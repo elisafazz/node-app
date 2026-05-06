@@ -38,11 +38,14 @@ final class StoryService {
     /// All active stories visible to the viewer across all their nodes (RLS enforces membership).
     /// Limited to 200 rows to keep Hub feed snappy. Deduped by id so cross-node posts appear once.
     /// Blocked authors are filtered client-side after fetch (200-row cap makes this negligible).
+    /// No story_visibility join here -- the join produces one row per visibility entry (a story shared
+    /// to N nodes = N rows), which exhausts the 200-row limit far faster than N unique stories would.
+    /// RLS policy stories_visible_to_viewer already enforces membership via story_visibility.
     func fetchAllVisible() async {
         do {
             let raw: [Story] = try await SupabaseService.shared.database
                 .from("stories")
-                .select("*, story_visibility!inner(node_id)")
+                .select()
                 .gt("expires_at", value: ISO8601DateFormatter().string(from: Date()))
                 .order("created_at", ascending: false)
                 .limit(200)
@@ -62,7 +65,11 @@ final class StoryService {
     /// Stories for the permanent year archive of a node, resolved via story_visibility.
     func fetchArchive(nodeId: UUID, year: Int) async {
         do {
-            let cal = Calendar(identifier: .gregorian)
+            // UTC calendar so year boundaries match the server-side created_at timestamps.
+            // Device-local calendar would shift Jan 1 by the UTC offset (e.g. LA = Jan 1 08:00 UTC),
+            // causing stories posted in the first hours of a new year to appear in the wrong bucket.
+            var cal = Calendar(identifier: .gregorian)
+            cal.timeZone = TimeZone(identifier: "UTC")!
             let yearStart = ISO8601DateFormatter().string(from: cal.date(from: DateComponents(year: year, month: 1, day: 1))!)
             let yearEnd = ISO8601DateFormatter().string(from: cal.date(from: DateComponents(year: year + 1, month: 1, day: 1))!)
             let stories: [Story] = try await SupabaseService.shared.database
