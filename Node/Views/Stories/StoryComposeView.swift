@@ -19,6 +19,14 @@ struct StoryComposeView: View {
     @State private var caption: String = ""
     @State private var isPosting = false
     @State private var errorMessage: String?
+    // Source-choice state. Simulator has no camera, so isSourceTypeAvailable
+    // returns false there and the dialog only shows "Choose from Library".
+    @State private var showSourceChoice = false
+    @State private var showCamera = false
+    @State private var showLibrary = false
+    // One-shot guard: open the camera automatically the first time the sheet
+    // appears (Snap-style camera-first compose).
+    @State private var didAutoLaunchCamera = false
 
     var body: some View {
         NavigationStack {
@@ -55,6 +63,16 @@ struct StoryComposeView: View {
                             .disabled(image == nil)
                     }
                 }
+            }
+            .task {
+                // Camera-first compose: open the camera as soon as the sheet
+                // appears. Cancel from the camera returns to the empty
+                // placeholder, where a tap gives Take Photo / Choose from Library.
+                guard !didAutoLaunchCamera,
+                      image == nil,
+                      UIImagePickerController.isSourceTypeAvailable(.camera) else { return }
+                didAutoLaunchCamera = true
+                showCamera = true
             }
         }
     }
@@ -95,12 +113,14 @@ struct StoryComposeView: View {
                         }
                     }
             } else {
-                PhotosPicker(selection: $pickerItem, matching: .images) {
+                Button {
+                    showSourceChoice = true
+                } label: {
                     VStack(spacing: 14) {
                         Image(systemName: "photo.badge.plus")
                             .font(.system(size: 56))
                             .foregroundStyle(Color.nodeAccent)
-                        Text("Pick a photo").font(.headline)
+                        Text("Add a photo").font(.headline)
                         if let displayName = auth.profile?.displayName {
                             Text("Posting as \(displayName)")
                                 .font(.caption)
@@ -112,8 +132,25 @@ struct StoryComposeView: View {
                     .background(Color.nodeSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
+                .confirmationDialog("Add a photo", isPresented: $showSourceChoice, titleVisibility: .hidden) {
+                    if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                        Button("Take Photo") { showCamera = true }
+                    }
+                    Button("Choose from Library") { showLibrary = true }
+                    Button("Cancel", role: .cancel) {}
+                }
+                .photosPicker(isPresented: $showLibrary, selection: $pickerItem, matching: .images)
                 .onChange(of: pickerItem) { _, newItem in
                     Task { await loadPicked(newItem) }
+                }
+                .fullScreenCover(isPresented: $showCamera) {
+                    CameraPicker { captured in
+                        if let captured {
+                            self.image = captured
+                            self.errorMessage = nil
+                        }
+                    }
+                    .ignoresSafeArea()
                 }
             }
         }
@@ -169,6 +206,42 @@ struct StoryComposeView: View {
             dismiss()
         } catch {
             errorMessage = UserFacingError.message(for: error)
+        }
+    }
+}
+
+/// SwiftUI wrapper for UIImagePickerController in camera mode. PhotosUI has no
+/// camera-capture equivalent, so we drop down to UIKit. Closure-based instead
+/// of @Binding so the caller can clear errorMessage atomically with setting
+/// the image. nil = user cancelled.
+private struct CameraPicker: UIViewControllerRepresentable {
+    let onCaptured: (UIImage?) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.allowsEditing = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        let parent: CameraPicker
+        init(_ parent: CameraPicker) { self.parent = parent }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            parent.onCaptured(info[.originalImage] as? UIImage)
+            parent.dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            parent.onCaptured(nil)
+            parent.dismiss()
         }
     }
 }

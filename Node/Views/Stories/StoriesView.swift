@@ -95,8 +95,12 @@ struct StoriesView: View {
             StoryComposeView(nodeId: nodeId, onPosted: { _ in })
         }
         .fullScreenCover(item: $playingAuthor) { author in
+            // Self is excluded from the swipe carousel per user spec: the
+            // player is for catching up on others, not re-watching your own.
+            // Tapping self in the avatar carousel routes to compose instead
+            // (see authorCarousel below).
             StoryTrayView(
-                authors: rankedAuthors.filter { !reel(for: $0).isEmpty },
+                authors: rankedAuthors.filter { $0.user.id != auth.session?.user.id && !reel(for: $0).isEmpty },
                 startingAuthor: author,
                 reelFor: { reel(for: $0) },
                 onDismiss: { playingAuthor = nil }
@@ -114,7 +118,10 @@ struct StoriesView: View {
                 ForEach(rankedAuthors) { author in
                     Button {
                         let isMe = author.user.id == auth.session?.user.id
-                        if isMe && reel(for: author).isEmpty {
+                        if isMe {
+                            // Tapping self always routes to compose, even if
+                            // self has stories. Self is excluded from the
+                            // player's swipe carousel per user spec.
                             showCompose = true
                         } else if !reel(for: author).isEmpty {
                             playingAuthor = author
