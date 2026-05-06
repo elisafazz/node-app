@@ -5,6 +5,7 @@ struct ThoughtsView: View {
     @Environment(ThoughtService.self) private var thoughts
     @Environment(\.scenePhase) private var scenePhase
     @State private var newThought = ""
+    @State private var members: [NodeMember] = []
     @State private var error: String?
     @State private var posting = false
 
@@ -18,16 +19,7 @@ struct ThoughtsView: View {
                             emptyState
                         } else {
                             ForEach(nodeThoughts) { thought in
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(thought.body)
-                                    Text(thought.createdAt, style: .relative)
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(12)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(Color.gray.opacity(0.08))
-                                .cornerRadius(10)
+                                thoughtCard(thought)
                             }
                         }
                     }
@@ -59,11 +51,50 @@ struct ThoughtsView: View {
                 .padding(.bottom, 8)
             }
             .navigationTitle("Thoughts")
-            .refreshable { await thoughts.fetchThoughts(nodeId: nodeId) }
+            .refreshable { await refresh() }
         }
-        .task { await thoughts.fetchThoughts(nodeId: nodeId) }
-        .onChange(of: scenePhase) { phase in
+        .task { await refresh() }
+        .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await thoughts.fetchThoughts(nodeId: nodeId) } }
+        }
+    }
+
+    @ViewBuilder
+    private func thoughtCard(_ thought: Thought) -> some View {
+        let author = members.first { $0.membership.userId == thought.authorUserId }
+        let isOwn = thought.authorUserId == AuthService.shared.session?.user.id
+        VStack(alignment: .leading, spacing: 6) {
+            if let author {
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(Color.forMembership(hex: author.accentColorHex, fallbackSeed: author.membership.id.uuidString))
+                        .frame(width: 20, height: 20)
+                        .overlay(
+                            Text(author.emoji ?? String(author.displayName.prefix(1)))
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white)
+                        )
+                    Text(author.displayName)
+                        .font(.footnote.weight(.semibold))
+                }
+            }
+            Text(thought.body)
+            Text(thought.createdAt, style: .relative)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.gray.opacity(0.08))
+        .cornerRadius(10)
+        .contextMenu {
+            if isOwn {
+                Button(role: .destructive) {
+                    Task { try? await ThoughtService.shared.deleteThought(thought) }
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
         }
     }
 
@@ -82,6 +113,11 @@ struct ThoughtsView: View {
         .frame(maxWidth: .infinity)
     }
 
+    private func refresh() async {
+        await thoughts.fetchThoughts(nodeId: nodeId)
+        members = (try? await NodeService.shared.members(of: nodeId)) ?? []
+    }
+
     private func postThought() async {
         guard let me = AuthService.shared.session?.user.id else { return }
         let body = newThought.trimmingCharacters(in: .whitespaces)
@@ -89,7 +125,7 @@ struct ThoughtsView: View {
         posting = true
         error = nil
         do {
-            _ = try await ThoughtService.shared.createThought(nodeId: nodeId, authorUserId: me, body: body)
+            _ = try await thoughts.createThought(nodeId: nodeId, authorUserId: me, body: body)
             newThought = ""
         } catch {
             self.error = UserFacingError.message(for: error)

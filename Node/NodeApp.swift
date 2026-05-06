@@ -8,12 +8,18 @@ struct NodeApp: App {
 
     @State private var auth = AuthService.shared
     @State private var nodes = NodeService.shared
+    @State private var stories = StoryService.shared
+    @State private var photos = PhotoService.shared
+    @State private var thoughts = ThoughtService.shared
 
     var body: some Scene {
         WindowGroup {
             RootView()
                 .environment(auth)
                 .environment(nodes)
+                .environment(stories)
+                .environment(photos)
+                .environment(thoughts)
                 .task {
                     await auth.bootstrap()
                     if auth.session != nil {
