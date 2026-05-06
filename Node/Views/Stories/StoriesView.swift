@@ -116,7 +116,9 @@ struct StoriesView: View {
         .task(id: nodeId) { await load(force: false) }
         .task(id: nodeId) { await subscribeToStories() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await load(force: false) } }
+            // Guard avoids a redundant network round-trip when the initial .task(id:) load
+            // is still in flight as the scene becomes active (e.g., cold launch).
+            if phase == .active, !isLoading { Task { await load(force: false) } }
         }
     }
 

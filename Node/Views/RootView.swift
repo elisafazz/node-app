@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var pushErrorMessage: String?
     @State private var pendingInviteCode: String?
     @State private var showJoinFromDeeplink = false
+    @State private var didRouteOnLaunch = false
 
     var body: some View {
         Group {
@@ -98,9 +99,11 @@ struct RootView: View {
             // Strand-prevention: a brand-new account with zero nodes lands on the Nodes tab
             // (where MyNodesView shows the "Create or Join" empty state). Otherwise the Hub graph
             // is empty and the quick actions all open sheets with disabled buttons.
-            if nodes.myNodes.isEmpty {
-                selectedTab = 1
-            }
+            // didRouteOnLaunch prevents re-routing every time myNodes goes empty→non-empty
+            // (NodeService clears cache on sign-out, so isEmpty flips on every auth cycle).
+            guard !didRouteOnLaunch else { return }
+            didRouteOnLaunch = true
+            if nodes.myNodes.isEmpty { selectedTab = 1 }
         }
     }
 

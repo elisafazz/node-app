@@ -95,10 +95,10 @@ final class AuthService: NSObject {
         if !result.ok {
             throw AuthError.deletionFailed("server returned not-ok")
         }
-        // Local cleanup
-        try? await SupabaseService.shared.auth.signOut()
-        self.session = nil
-        self.profile = nil
+        // signOut() clears session, profile, and all feature service caches atomically.
+        // Calling it here instead of open-coding the cleanup means we can't diverge
+        // from signOut()'s cache-clear list as new services are added.
+        try? await signOut()
     }
 
     /// Restore session on app launch.

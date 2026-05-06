@@ -56,7 +56,12 @@ final class CloudinaryService {
         guard max(size.width, size.height) > maxDimension else { return image }
         let scale = maxDimension / max(size.width, size.height)
         let newSize = CGSize(width: size.width * scale, height: size.height * scale)
-        let renderer = UIGraphicsImageRenderer(size: newSize)
+        // format.scale = 1 forces a 1x pixel buffer matching newSize exactly.
+        // Default scale inherits the device screen scale (3x on Pro), which would
+        // produce a 5760px buffer from a 1920pt target on a 3x device.
+        var format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: newSize, format: format)
         return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
     }
 
