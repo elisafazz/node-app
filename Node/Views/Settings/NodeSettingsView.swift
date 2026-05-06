@@ -16,7 +16,7 @@ struct NodeSettingsView: View {
                 Section("This node") {
                     LabeledContent("Name", value: node.name)
                     LabeledContent("Members") { Text("Up to \(node.memberCap)") }
-                    LabeledContent("Invite code", value: node.inviteCode)
+                    LabeledContent("Invite code", value: liveInviteCode)
                     if isOwner {
                         Button("Rotate invite code") { rotateCode() }
                     }
@@ -44,6 +44,10 @@ struct NodeSettingsView: View {
             .onAppear { loadFromMembership() }
             .navigationTitle("Settings")
         }
+    }
+
+    private var liveInviteCode: String {
+        nodes.myNodes.first { $0.id == node.id }?.inviteCode ?? node.inviteCode
     }
 
     private var isOwner: Bool {

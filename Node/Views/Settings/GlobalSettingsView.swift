@@ -52,10 +52,12 @@ struct GlobalSettingsView: View {
     private func saveProfile() {
         saving = true
         Task {
+            guard let userId = auth.profile?.id.uuidString else { saving = false; return }
             struct UserPatch: Encodable { let display_name: String }
             try? await SupabaseService.shared.database
                 .from("users")
                 .update(UserPatch(display_name: displayName))
+                .eq("id", value: userId)
                 .execute()
             try? await auth.fetchProfile()
             saving = false

@@ -30,6 +30,7 @@ struct MyNodesView: View {
                     }
                 }
             }
+            .task { await nodes.loadMyNodes() }
             .refreshable { await nodes.loadMyNodes() }
             .sheet(isPresented: $showCreate) { CreateNodeView() }
             .sheet(isPresented: $showJoin) { JoinNodeView() }
