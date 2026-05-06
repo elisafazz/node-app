@@ -116,11 +116,22 @@ final class StoryService {
             p_origin_node_id: originNodeId,
             p_active_window_seconds: Int(Constants.Story.activeWindowSeconds)
         )
-        let result: RPCResult = try await SupabaseService.shared.database
-            .rpc("create_story_with_visibility", params: params)
-            .single()
-            .execute()
-            .value
+        // If the RPC call fails after a successful Cloudinary upload, the image is orphaned.
+        // Apple-compliant deletion from the client requires the Cloudinary Admin API (secret)
+        // which must not live in the bundle. The delete-user-data Edge Function handles bulk
+        // cleanup on account deletion; single-photo orphan cleanup is a Phase B follow-up.
+        // Log the public_id so it's detectable in Supabase logs.
+        let result: RPCResult
+        do {
+            result = try await SupabaseService.shared.database
+                .rpc("create_story_with_visibility", params: params)
+                .single()
+                .execute()
+                .value
+        } catch {
+            Log.shared.error("create_story_rpc_failed orphan=\(cloudinaryPublicId)", error: error)
+            throw error
+        }
         let story = Story(
             id: result.story_id,
             originNodeId: originNodeId,
