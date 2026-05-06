@@ -311,7 +311,12 @@ struct MeetingDetailView: View {
     private func topSlots() -> [MeetingSlot] {
         let counts = responseCounts()
         return slots
-            .sorted { (counts[$0.startAt] ?? 0) > (counts[$1.startAt] ?? 0) }
+            .sorted {
+                let lhsCount = counts[$0.startAt] ?? 0
+                let rhsCount = counts[$1.startAt] ?? 0
+                if lhsCount != rhsCount { return lhsCount > rhsCount }
+                return $0.startAt < $1.startAt  // tie-break: earlier slot first
+            }
             .prefix(5)
             .map { $0 }
     }

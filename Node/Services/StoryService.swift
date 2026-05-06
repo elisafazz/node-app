@@ -14,13 +14,17 @@ final class StoryService {
     private func archiveKey(nodeId: UUID, year: Int) -> String { "\(nodeId.uuidString)-\(year)" }
 
     /// Active stories for a single node, resolved via story_visibility (supports cross-node posts).
+    /// Clock skew: subtract 5 minutes from "now" to tolerate devices with fast clocks showing
+    /// stories that the server hasn't expired yet. Stories near expiry may show briefly after
+    /// actual expiry, but that's less disruptive than premature disappearance.
     func fetchActive(nodeId: UUID) async {
         do {
+            let threshold = Date().addingTimeInterval(-300)
             let stories: [Story] = try await SupabaseService.shared.database
                 .from("stories")
                 .select("*, story_visibility!inner(node_id)")
                 .eq("story_visibility.node_id", value: nodeId.uuidString)
-                .gt("expires_at", value: ISO8601DateFormatter().string(from: Date()))
+                .gt("expires_at", value: ISO8601DateFormatter().string(from: threshold))
                 .order("created_at", ascending: false)
                 .execute()
                 .value

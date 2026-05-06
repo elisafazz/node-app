@@ -33,8 +33,12 @@ struct StoryArchiveView: View {
         return groups.keys.sorted(by: >).map { day in (day, groups[day] ?? []) }
     }
 
+    private var authorsByUserId: [UUID: NodeMember] {
+        Dictionary(authors.map { ($0.user.id, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
     private func authorFor(_ userId: UUID) -> NodeMember? {
-        authors.first { $0.user.id == userId }
+        authorsByUserId[userId]
     }
 
     var body: some View {

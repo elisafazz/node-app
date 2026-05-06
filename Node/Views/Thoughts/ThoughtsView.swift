@@ -98,9 +98,13 @@ struct ThoughtsView: View {
         }
     }
 
+    private var membersByUserId: [UUID: NodeMember] {
+        Dictionary(members.map { ($0.user.id, $0) }, uniquingKeysWith: { a, _ in a })
+    }
+
     @ViewBuilder
     private func thoughtCard(_ thought: Thought) -> some View {
-        let author = members.first { $0.membership.userId == thought.authorUserId }
+        let author = membersByUserId[thought.authorUserId]
         let isOwn = thought.authorUserId == AuthService.shared.session?.user.id
         VStack(alignment: .leading, spacing: 6) {
             if let author {
