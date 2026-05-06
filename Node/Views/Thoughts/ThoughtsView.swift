@@ -35,11 +35,24 @@ struct ThoughtsView: View {
                 }
 
                 HStack(spacing: 8) {
-                    TextField("Share a thought…", text: $newThought, axis: .vertical)
-                        .lineLimit(1...4)
-                        .padding(8)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        TextField("Share a thought…", text: $newThought, axis: .vertical)
+                            .lineLimit(1...4)
+                            .padding(8)
+                            .background(Color.gray.opacity(0.1))
+                            .cornerRadius(8)
+                            .onChange(of: newThought) { _, value in
+                                if value.count > 2000 {
+                                    newThought = String(value.prefix(2000))
+                                }
+                            }
+                        if newThought.count > 1800 {
+                            Text("\(2000 - newThought.count)")
+                                .font(.caption2)
+                                .foregroundStyle(newThought.count >= 2000 ? .red : .secondary)
+                                .padding(.trailing, 4)
+                        }
+                    }
                     Button {
                         Task { await postThought() }
                     } label: {

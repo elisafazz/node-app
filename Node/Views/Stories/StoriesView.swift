@@ -1,4 +1,5 @@
 import SwiftUI
+import Supabase
 
 /// Stories landing screen for one node. Carousel of author rings (current user first, then others by recency),
 /// tap-to-play opens StoryTrayView. Compose FAB bottom-right. Pull-to-refresh + scenePhase foreground refresh.
@@ -107,6 +108,7 @@ struct StoriesView: View {
             )
         }
         .task { await load(force: false) }
+        .task(id: nodeId) { await subscribeToStories() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await load(force: false) } }
         }
@@ -183,6 +185,23 @@ struct StoriesView: View {
                 .frame(width: 56, height: 56)
                 .background(Circle().fill(Color.nodeAccent))
                 .shadow(radius: 6, y: 2)
+        }
+    }
+
+    /// Live-updates the carousel whenever any member posts a new story while this view is on screen.
+    /// Unsubscribes automatically when the task is cancelled (view leaves screen or nodeId changes).
+    private func subscribeToStories() async {
+        let channel = SupabaseService.shared.client.channel("stories:\(nodeId.uuidString)")
+        let insertions = channel.postgresChange(
+            InsertAction.self,
+            schema: "public",
+            table: "stories",
+            filter: "node_id=eq.\(nodeId.uuidString)"
+        )
+        await channel.subscribe()
+        defer { Task { await channel.unsubscribe() } }
+        for await _ in insertions {
+            await stories.fetchActive(nodeId: nodeId)
         }
     }
 
