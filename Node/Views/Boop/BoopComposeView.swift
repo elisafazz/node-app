@@ -139,6 +139,8 @@ struct BoopComposeView: View {
         }
         .buttonStyle(.plain)
         .animation(.easeInOut(duration: 0.15), value: isSelected)
+        .accessibilityLabel("\(label), \(isSelected ? "selected" : "not selected")")
+        .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
     }
 
     private func send() async {

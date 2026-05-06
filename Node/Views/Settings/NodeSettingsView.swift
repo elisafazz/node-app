@@ -10,6 +10,8 @@ struct NodeSettingsView: View {
     @State private var perNodeAccentHex = ""
     @State private var accentColor: Color = .nodeBrand
     @State private var saving = false
+    @State private var isRotating = false
+    @State private var isLeaving = false
     @State private var saveError: String?
     @State private var actionError: String?
     @State private var showRotateConfirm = false
@@ -23,7 +25,8 @@ struct NodeSettingsView: View {
                     LabeledContent("Members") { Text("Up to \(node.memberCap)") }
                     if isOwner {
                         LabeledContent("Invite code", value: liveInviteCode)
-                        Button("Rotate invite code") { showRotateConfirm = true }
+                        Button(isRotating ? "Rotating…" : "Rotate invite code") { showRotateConfirm = true }
+                            .disabled(isRotating)
                     }
                 }
 
@@ -46,7 +49,8 @@ struct NodeSettingsView: View {
                 }
 
                 Section {
-                    Button("Leave node", role: .destructive) { showLeaveConfirm = true }
+                    Button(isLeaving ? "Leaving…" : "Leave node", role: .destructive) { showLeaveConfirm = true }
+                        .disabled(isLeaving)
                     if let actionError {
                         Text(actionError).font(.footnote).foregroundStyle(.red)
                     }
@@ -105,10 +109,13 @@ struct NodeSettingsView: View {
     }
 
     private func rotateCode() {
+        isRotating = true
         actionError = nil
         Task {
+            defer { isRotating = false }
             do {
                 _ = try await nodes.rotateInviteCode(nodeId: node.id)
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
             } catch {
                 actionError = UserFacingError.message(for: error)
             }
@@ -117,8 +124,10 @@ struct NodeSettingsView: View {
 
     private func leave() {
         guard let me = auth.session?.user.id else { return }
+        isLeaving = true
         actionError = nil
         Task {
+            defer { isLeaving = false }
             do {
                 try await nodes.leaveNode(nodeId: node.id, userId: me)
             } catch {
@@ -132,35 +141,50 @@ struct NodeMembersView: View {
     let nodeId: UUID
     @Environment(AuthService.self) private var auth
     @State private var members: [NodeMember] = []
+    @State private var loadError: String?
     @State private var reportTarget: NodeMember?
     @State private var blockTarget: NodeMember?
 
     var body: some View {
-        List(members) { member in
-            let isMe = member.user.id == auth.session?.user.id
-            HStack(spacing: 12) {
-                Circle()
-                    .fill(Color.forMembership(hex: member.accentColorHex, fallbackSeed: member.id.uuidString))
-                    .frame(width: 36, height: 36)
-                    .overlay(Text(member.emoji ?? String(member.displayName.prefix(1))).font(.body))
-                VStack(alignment: .leading) {
-                    Text(member.displayName).font(.body)
-                    Text(member.membership.role.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
+        List {
+            if let loadError {
+                Section {
+                    Text(loadError)
+                        .font(.footnote)
+                        .foregroundStyle(.red)
                 }
-                Spacer()
-                if !isMe {
-                    Menu {
-                        Button("Report", systemImage: "flag") { reportTarget = member }
-                        Button("Block", systemImage: "person.slash", role: .destructive) { blockTarget = member }
-                    } label: {
-                        Image(systemName: "ellipsis").foregroundStyle(.secondary)
+            }
+            ForEach(members) { member in
+                let isMe = member.user.id == auth.session?.user.id
+                HStack(spacing: 12) {
+                    Circle()
+                        .fill(Color.forMembership(hex: member.accentColorHex, fallbackSeed: member.id.uuidString))
+                        .frame(width: 36, height: 36)
+                        .overlay(Text(member.emoji ?? String(member.displayName.prefix(1))).font(.body))
+                    VStack(alignment: .leading) {
+                        Text(member.displayName).font(.body)
+                        Text(member.membership.role.rawValue.capitalized).font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    if !isMe {
+                        Menu {
+                            Button("Report", systemImage: "flag") { reportTarget = member }
+                            Button("Block", systemImage: "person.slash", role: .destructive) { blockTarget = member }
+                        } label: {
+                            Image(systemName: "ellipsis").foregroundStyle(.secondary)
+                        }
+                        .accessibilityLabel("More options for \(member.displayName)")
                     }
                 }
             }
         }
         .navigationTitle("Members")
         .task {
-            members = (try? await NodeService.shared.members(of: nodeId)) ?? []
+            do {
+                members = try await NodeService.shared.members(of: nodeId)
+            } catch {
+                loadError = UserFacingError.message(for: error)
+            }
         }
         .sheet(item: $reportTarget) { member in
             ReportSheet(targetKind: .user, targetId: member.user.id, nodeId: nodeId)

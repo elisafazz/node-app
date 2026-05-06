@@ -106,6 +106,7 @@ struct StoryComposeView: View {
                                 .background(Color.black.opacity(0.4))
                                 .clipShape(Circle())
                         }
+                        .accessibilityLabel("Remove photo")
                         .padding(10)
                     }
                     .overlay(alignment: .bottomLeading) {

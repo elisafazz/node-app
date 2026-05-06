@@ -7,6 +7,7 @@ struct LoginView: View {
     @State private var currentNonce: String?
     @State private var error: String?
     @State private var hasAcceptedTerms = false
+    @State private var isSigningIn = false
 
     var body: some View {
         VStack(spacing: 32) {
@@ -42,8 +43,8 @@ struct LoginView: View {
                 .signInWithAppleButtonStyle(.black)
                 .frame(height: 52)
                 .padding(.horizontal, 24)
-                .disabled(!hasAcceptedTerms)
-                .opacity(hasAcceptedTerms ? 1 : 0.4)
+                .disabled(!hasAcceptedTerms || isSigningIn)
+                .opacity(hasAcceptedTerms && !isSigningIn ? 1 : 0.4)
 
             if let error {
                 Text(error)
@@ -85,12 +86,15 @@ struct LoginView: View {
                 self.error = "Sign in did not return an authorization code. Try again."
                 return
             }
+            isSigningIn = true
             Task {
                 do {
                     try await auth.signInWithApple(identityToken: identityToken, nonce: nonce, authorizationCode: authorizationCode)
                 } catch {
                     self.error = UserFacingError.message(for: error)
+                    isSigningIn = false
                 }
+                // On success RootView transitions away, so no need to reset isSigningIn.
             }
         }
     }

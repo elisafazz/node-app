@@ -257,6 +257,7 @@ struct StoryPlayerView: View {
                         .background(Color.black.opacity(0.35))
                         .clipShape(Circle())
                 }
+                .accessibilityLabel("Story options for \(author.displayName)")
             }
 
             Button(action: onDismiss) {
@@ -267,6 +268,7 @@ struct StoryPlayerView: View {
                     .background(Color.black.opacity(0.35))
                     .clipShape(Circle())
             }
+            .accessibilityLabel("Close story")
         }
     }
 
