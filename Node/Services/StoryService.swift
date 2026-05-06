@@ -32,16 +32,23 @@ final class StoryService {
     }
 
     /// All active stories visible to the viewer across all their nodes (RLS enforces membership).
+    /// Limited to 200 rows to keep Hub feed snappy. Deduped by id so cross-node posts appear once.
+    /// Blocked authors are filtered client-side after fetch (200-row cap makes this negligible).
     func fetchAllVisible() async {
         do {
-            let stories: [Story] = try await SupabaseService.shared.database
+            let raw: [Story] = try await SupabaseService.shared.database
                 .from("stories")
                 .select("*, story_visibility!inner(node_id)")
                 .gt("expires_at", value: ISO8601DateFormatter().string(from: Date()))
                 .order("created_at", ascending: false)
+                .limit(200)
                 .execute()
                 .value
-            self.allVisible = stories
+            let blocked = BlockService.shared.blockedUserIds
+            var seen = Set<UUID>()
+            self.allVisible = raw.filter {
+                !blocked.contains($0.authorUserId) && seen.insert($0.id).inserted
+            }
             self.lastError = nil
         } catch {
             self.lastError = error.localizedDescription
@@ -126,6 +133,13 @@ final class StoryService {
             .execute()
         await fetchActive(nodeId: nodeId)
         await fetchAllVisible()
+    }
+
+    func clearCache() {
+        activeByNodeId = [:]
+        archiveByNodeIdYear = [:]
+        allVisible = []
+        lastError = nil
     }
 }
 

@@ -7,6 +7,7 @@ struct ThoughtsView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var newThought = ""
     @State private var members: [NodeMember] = []
+    @State private var lastRefreshed: Date = .distantPast
     @State private var reportTarget: Thought?
     @State private var blockTarget: NodeMember?
     @State private var error: String?
@@ -89,7 +90,11 @@ struct ThoughtsView: View {
         }
         .task { await refresh() }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await thoughts.fetchThoughts(nodeId: nodeId) } }
+            guard phase == .active else { return }
+            guard Date().timeIntervalSince(lastRefreshed) > 30 else { return }
+            guard !NetworkMonitor.shared.isExpensive else { return }
+            lastRefreshed = Date()
+            Task { await thoughts.fetchThoughts(nodeId: nodeId) }
         }
     }
 

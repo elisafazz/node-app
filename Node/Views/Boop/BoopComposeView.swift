@@ -45,9 +45,8 @@ struct BoopComposeView: View {
                     }
                 }
             }
-            .task {
-                selectedNodeIds = Set(nodes.myNodes.map(\.id))
-            }
+            // Do NOT default-select all nodes -- an accidental Send would ping all members.
+            // User must explicitly choose who to boop.
         }
     }
 

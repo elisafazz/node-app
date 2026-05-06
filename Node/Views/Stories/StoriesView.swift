@@ -111,7 +111,7 @@ struct StoriesView: View {
                 onDismiss: { playingAuthor = nil }
             )
         }
-        .task { await load(force: false) }
+        .task(id: nodeId) { await load(force: false) }
         .task(id: nodeId) { await subscribeToStories() }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active { Task { await load(force: false) } }
@@ -192,20 +192,37 @@ struct StoriesView: View {
         }
     }
 
-    /// Live-updates the carousel whenever any member posts a new story while this view is on screen.
-    /// Unsubscribes automatically when the task is cancelled (view leaves screen or nodeId changes).
+    /// Live-updates the carousel whenever any member posts a story visible in this node.
+    /// Subscribes to story_visibility inserts (the cross-node junction) rather than stories.origin_node_id,
+    /// because origin_node_id is telemetry-only after migration 0002 -- a story shared to this node may
+    /// have been authored from a different one. We also handle visibility deletes so un-shares clear live.
     private func subscribeToStories() async {
-        let channel = SupabaseService.shared.client.channel("stories:\(nodeId.uuidString)")
+        let channel = SupabaseService.shared.client.channel("story_visibility:\(nodeId.uuidString)")
         let insertions = channel.postgresChange(
             InsertAction.self,
             schema: "public",
-            table: "stories",
+            table: "story_visibility",
+            filter: "node_id=eq.\(nodeId.uuidString)"
+        )
+        let deletions = channel.postgresChange(
+            DeleteAction.self,
+            schema: "public",
+            table: "story_visibility",
             filter: "node_id=eq.\(nodeId.uuidString)"
         )
         await channel.subscribe()
         defer { Task { await channel.unsubscribe() } }
-        for await _ in insertions {
-            await stories.fetchActive(nodeId: nodeId)
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask {
+                for await _ in insertions {
+                    await stories.fetchActive(nodeId: nodeId)
+                }
+            }
+            group.addTask {
+                for await _ in deletions {
+                    await stories.fetchActive(nodeId: nodeId)
+                }
+            }
         }
     }
 

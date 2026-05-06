@@ -75,6 +75,13 @@ final class AuthService: NSObject {
         try await SupabaseService.shared.auth.signOut()
         self.session = nil
         self.profile = nil
+        // Clear all cached feature data so a subsequent sign-in starts clean.
+        NodeService.shared.clearCache()
+        StoryService.shared.clearCache()
+        PhotoService.shared.clearCache()
+        ThoughtService.shared.clearCache()
+        MeetingService.shared.clearCache()
+        BlockService.shared.clearCache()
     }
 
     /// Calls the delete-user-data Edge Function which performs the full Apple-compliant cascade.

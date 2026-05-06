@@ -1,6 +1,7 @@
 import SwiftUI
 
 struct JoinNodeView: View {
+    var prefillCode: String? = nil
     @Environment(NodeService.self) private var nodes
     @Environment(\.dismiss) private var dismiss
 
@@ -38,6 +39,13 @@ struct JoinNodeView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button(attempting ? "Joining…" : "Join") { attempt() }
                         .disabled(attempting || code.count != 8)
+                }
+            }
+            // Universal Link prefill: set code and auto-submit when the sheet opens
+            .task {
+                if let pre = prefillCode {
+                    code = pre
+                    if code.count == 8 { attempt() }
                 }
             }
         }

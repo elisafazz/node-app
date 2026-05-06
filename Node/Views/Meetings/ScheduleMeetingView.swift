@@ -202,12 +202,18 @@ struct ScheduleMeetingView: View {
 
             Spacer()
 
+            let maxWeekStart = Calendar.current.date(byAdding: .weekOfYear, value: 8, to: Date().startOfWeek) ?? weekStart
             Button {
-                weekStart = Calendar.current.date(byAdding: .weekOfYear, value: 1, to: weekStart) ?? weekStart
+                if let next = Calendar.current.date(byAdding: .weekOfYear, value: 1, to: weekStart),
+                   next <= maxWeekStart {
+                    weekStart = next
+                }
             } label: {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(weekStart >= maxWeekStart ? Color.nodeText.opacity(0.3) : Color.nodeText)
             }
+            .disabled(weekStart >= maxWeekStart)
         }
         .foregroundStyle(Color.nodeText)
         .padding(.horizontal, 20)

@@ -74,28 +74,51 @@ final class PushService {
     func fanOutStoryNotification(nodeIds: [UUID], authorUserId: UUID, caption: String?) async {
         let title = "Someone posted a story"
         let body = caption?.isEmpty == false ? caption! : "Tap to watch"
+        await sendMultiNode(
+            nodeIds: nodeIds,
+            authorUserId: authorUserId,
+            title: title,
+            body: body,
+            category: "node-story"
+        )
+    }
 
+    /// Single multi-node push: server unions memberships across all node_ids, dedupes recipients
+    /// by user_id, and sends one APNs payload per unique recipient device token. Replaces the old
+    /// per-node loop which double-pushed users in multiple shared nodes.
+    func sendMultiNode(
+        nodeIds: [UUID],
+        authorUserId: UUID,
+        title: String,
+        body: String,
+        category: String
+    ) async {
+        guard !nodeIds.isEmpty else { return }
         struct PushBody: Encodable {
-            let node_id: UUID
+            let node_ids: [UUID]
             let author_user_id: UUID
             let title: String
             let body: String
             let category: String
         }
-        for nodeId in nodeIds {
-            var request = URLRequest(url: Constants.Backend.pushFanoutURL)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            if let session = AuthService.shared.session {
-                request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
-            }
-            let payload = PushBody(node_id: nodeId, author_user_id: authorUserId, title: title, body: body, category: "node-story")
-            request.httpBody = try? JSONEncoder().encode(payload)
-            do {
-                _ = try await URLSession.shared.data(for: request)
-            } catch {
-                Log.shared.error("push_fanout_failed", error: error)
-            }
+        var request = URLRequest(url: Constants.Backend.pushFanoutURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let session = AuthService.shared.session {
+            request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        }
+        let payload = PushBody(
+            node_ids: nodeIds,
+            author_user_id: authorUserId,
+            title: title,
+            body: body,
+            category: category
+        )
+        request.httpBody = try? JSONEncoder().encode(payload)
+        do {
+            _ = try await URLSession.shared.data(for: request)
+        } catch {
+            Log.shared.error("push_fanout_failed", error: error)
         }
     }
 }

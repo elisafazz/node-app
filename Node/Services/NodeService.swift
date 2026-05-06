@@ -139,4 +139,10 @@ final class NodeService {
             .execute()
         await loadMyNodes()
     }
+
+    func clearCache() {
+        myNodes = []
+        myMembershipsByNodeId = [:]
+        lastError = nil
+    }
 }

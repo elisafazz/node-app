@@ -121,7 +121,11 @@ struct StoryArchiveView: View {
     }
 
     private func ensureYearLoaded(_ year: Int) async {
-        guard !loadingYears.contains(year), yearStories.isEmpty else { return }
+        // Check the specific year's data, not the computed yearStories property which
+        // depends on selectedYear and causes a race when years switch rapidly.
+        let archiveKey = "\(nodeId.uuidString)-\(year)"
+        let alreadyLoaded = stories.archiveByNodeIdYear[archiveKey] != nil
+        guard !loadingYears.contains(year), !alreadyLoaded else { return }
         loadingYears.insert(year)
         await stories.fetchArchive(nodeId: nodeId, year: year)
         loadingYears.remove(year)

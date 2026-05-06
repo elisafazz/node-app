@@ -2,9 +2,25 @@ import SwiftUI
 import UIKit
 import UserNotifications
 
+extension Notification.Name {
+    static let pushRegistrationFailed = Notification.Name("com.elisafazzari.node.pushRegistrationFailed")
+}
+
 @main
 struct NodeApp: App {
     @UIApplicationDelegateAdaptor(NodeAppDelegate.self) private var appDelegate
+
+    init() {
+        // Give AsyncImage a 100 MB disk cache so thumbnails survive app restarts.
+        // Default URLCache is memory-only for simulator + ~50 MB disk on device, which
+        // flushes on memory pressure. Cloudinary CDN URLs are stable so disk-caching is safe.
+        URLCache.shared = URLCache(memoryCapacity: 20 * 1024 * 1024,
+                                   diskCapacity: 100 * 1024 * 1024,
+                                   diskPath: "NodeImageCache")
+        // Start network path monitoring eagerly so .isExpensive is populated before any view
+        // checks it on scenePhase change. Accessing the singleton starts the NWPathMonitor.
+        _ = NetworkMonitor.shared
+    }
 
     @State private var auth = AuthService.shared
     @State private var nodes = NodeService.shared
@@ -51,6 +67,14 @@ final class NodeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
 
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         Log.shared.error("apns_register_failed", error: error)
+        // Surface the failure so the user knows push notifications won't work.
+        // This only fires if the device itself rejects registration (e.g. simulator with push entitlement off, provisioning mismatch).
+        Task { @MainActor in
+            NotificationCenter.default.post(
+                name: .pushRegistrationFailed,
+                object: error.localizedDescription
+            )
+        }
     }
 
     // Allow stories / new-thought banners while the app is in the foreground.

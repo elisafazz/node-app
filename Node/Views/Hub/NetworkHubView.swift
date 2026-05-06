@@ -35,12 +35,6 @@ struct NetworkHubView: View {
                             .foregroundStyle(Color.nodeBrand)
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { } label: {
-                        Image(systemName: "bell")
-                            .foregroundStyle(Color.nodeText)
-                    }
-                }
             }
             .navigationDestination(for: NodeRecord.self) { node in
                 NodeRootView(node: node)

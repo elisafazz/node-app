@@ -50,4 +50,9 @@ final class ThoughtService {
             .execute()
         await fetchThoughts(nodeId: thought.nodeId)
     }
+
+    func clearCache() {
+        thoughtsByNodeId = [:]
+        lastError = nil
+    }
 }

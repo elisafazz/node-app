@@ -110,10 +110,46 @@ final class MeetingService {
         try await SupabaseService.shared.database
             .rpc("confirm_meeting_slot", params: RPCParams(p_meeting_id: meetingId, p_slot_id: slotId))
             .execute()
-        if let idx = myMeetings.firstIndex(where: { $0.id == meetingId }) {
-            await fetchMyMeetings()
-            _ = idx
+        await fetchMyMeetings()
+        await fanOutConfirmedNotification(meetingId: meetingId, slotId: slotId)
+    }
+
+    /// Notifies every member of every visibility node that the poll has closed.
+    /// Multi-node send means a member in multiple visibility nodes receives one push, not many.
+    private func fanOutConfirmedNotification(meetingId: UUID, slotId: UUID) async {
+        guard let me = AuthService.shared.session?.user.id else { return }
+        struct VisibilityRow: Decodable { let node_id: UUID }
+        let nodeIds: [UUID]
+        do {
+            let rows: [VisibilityRow] = try await SupabaseService.shared.database
+                .from("meeting_node_visibility")
+                .select("node_id")
+                .eq("meeting_id", value: meetingId)
+                .execute()
+                .value
+            nodeIds = rows.map(\.node_id)
+        } catch {
+            Log.shared.error("meeting_confirm_visibility_fetch_failed", error: error)
+            return
         }
+        guard !nodeIds.isEmpty else { return }
+        let title = "Meeting confirmed"
+        let meetingTitle = myMeetings.first(where: { $0.id == meetingId })?.title ?? "A meeting"
+        let body = "\(meetingTitle) is locked in. Tap to see the time."
+        await PushService.shared.sendMultiNode(
+            nodeIds: nodeIds,
+            authorUserId: me,
+            title: title,
+            body: body,
+            category: "node-meeting-confirmed"
+        )
+    }
+
+    func clearCache() {
+        myMeetings = []
+        slotsByMeetingId = [:]
+        responsesByMeetingId = [:]
+        lastError = nil
     }
 
     enum MeetingError: Error {

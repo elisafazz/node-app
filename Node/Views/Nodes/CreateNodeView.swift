@@ -33,14 +33,20 @@ struct CreateNodeView: View {
                                 .frame(maxWidth: .infinity)
                                 .background(Color.gray.opacity(0.15))
                                 .cornerRadius(8)
-                            Button {
-                                #if canImport(UIKit)
-                                UIPasteboard.general.string = code
-                                #endif
-                            } label: {
-                                Label("Copy code", systemImage: "doc.on.doc")
+                            HStack(spacing: 12) {
+                                Button {
+                                    #if canImport(UIKit)
+                                    UIPasteboard.general.string = code
+                                    #endif
+                                } label: {
+                                    Label("Copy", systemImage: "doc.on.doc")
+                                }
+                                .buttonStyle(.bordered)
+                                ShareLink(item: "Join my Node with code: \(code)") {
+                                    Label("Share", systemImage: "square.and.arrow.up")
+                                }
+                                .buttonStyle(.bordered)
                             }
-                            .buttonStyle(.bordered)
                         }
                     }
                 }

@@ -8,7 +8,10 @@ struct NodeSettingsView: View {
     @State private var perNodeName = ""
     @State private var perNodeEmoji = ""
     @State private var perNodeAccentHex = ""
+    @State private var accentColor: Color = .nodeBrand
     @State private var saving = false
+    @State private var saveError: String?
+    @State private var actionError: String?
     @State private var showRotateConfirm = false
     @State private var showLeaveConfirm = false
 
@@ -18,8 +21,8 @@ struct NodeSettingsView: View {
                 Section("This node") {
                     LabeledContent("Name", value: node.name)
                     LabeledContent("Members") { Text("Up to \(node.memberCap)") }
-                    LabeledContent("Invite code", value: liveInviteCode)
                     if isOwner {
+                        LabeledContent("Invite code", value: liveInviteCode)
                         Button("Rotate invite code") { showRotateConfirm = true }
                     }
                 }
@@ -27,10 +30,13 @@ struct NodeSettingsView: View {
                 Section("My identity in this node") {
                     TextField("Display name override", text: $perNodeName)
                     TextField("Emoji", text: $perNodeEmoji)
-                    TextField("Accent color (#RRGGBB)", text: $perNodeAccentHex)
-                        .autocorrectionDisabled()
+                    ColorPicker("Accent color", selection: $accentColor, supportsOpacity: false)
+                        .onChange(of: accentColor) { _, c in perNodeAccentHex = c.hexString }
                     Button(saving ? "Saving…" : "Save") { save() }
                         .disabled(saving)
+                    if let saveError {
+                        Text(saveError).font(.footnote).foregroundStyle(.red)
+                    }
                 }
 
                 Section("Members") {
@@ -41,6 +47,9 @@ struct NodeSettingsView: View {
 
                 Section {
                     Button("Leave node", role: .destructive) { showLeaveConfirm = true }
+                    if let actionError {
+                        Text(actionError).font(.footnote).foregroundStyle(.red)
+                    }
                 }
             }
             .onAppear { loadFromMembership() }
@@ -72,29 +81,50 @@ struct NodeSettingsView: View {
         let m = nodes.myMembershipsByNodeId[node.id]
         perNodeName = m?.perNodeDisplayName ?? ""
         perNodeEmoji = m?.perNodeEmoji ?? ""
-        perNodeAccentHex = m?.perNodeAccentColor ?? ""
+        let hex = m?.perNodeAccentColor ?? ""
+        perNodeAccentHex = hex
+        accentColor = Color(hex: hex) ?? .nodeBrand
     }
 
     private func save() {
         saving = true
+        saveError = nil
         Task {
-            try? await nodes.updateMyMembership(
-                nodeId: node.id,
-                displayName: perNodeName.isEmpty ? nil : perNodeName,
-                accentColorHex: perNodeAccentHex.isEmpty ? nil : perNodeAccentHex,
-                emoji: perNodeEmoji.isEmpty ? nil : perNodeEmoji
-            )
-            saving = false
+            defer { saving = false }
+            do {
+                try await nodes.updateMyMembership(
+                    nodeId: node.id,
+                    displayName: perNodeName.isEmpty ? nil : perNodeName,
+                    accentColorHex: perNodeAccentHex.isEmpty ? nil : perNodeAccentHex,
+                    emoji: perNodeEmoji.isEmpty ? nil : perNodeEmoji
+                )
+            } catch {
+                saveError = UserFacingError.message(for: error)
+            }
         }
     }
 
     private func rotateCode() {
-        Task { _ = try? await nodes.rotateInviteCode(nodeId: node.id) }
+        actionError = nil
+        Task {
+            do {
+                _ = try await nodes.rotateInviteCode(nodeId: node.id)
+            } catch {
+                actionError = UserFacingError.message(for: error)
+            }
+        }
     }
 
     private func leave() {
         guard let me = auth.session?.user.id else { return }
-        Task { try? await nodes.leaveNode(nodeId: node.id, userId: me) }
+        actionError = nil
+        Task {
+            do {
+                try await nodes.leaveNode(nodeId: node.id, userId: me)
+            } catch {
+                actionError = UserFacingError.message(for: error)
+            }
+        }
     }
 }
 

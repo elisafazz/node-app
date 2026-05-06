@@ -46,4 +46,8 @@ final class BlockService {
     func isBlocked(_ userId: UUID) -> Bool {
         blockedUserIds.contains(userId)
     }
+
+    func clearCache() {
+        blockedUserIds = []
+    }
 }

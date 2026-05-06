@@ -54,6 +54,18 @@ extension Color {
         self = Color(red: r, green: g, blue: b)
     }
 
+    /// Returns a 6-char uppercase hex string (no #) for the color's RGB components.
+    var hexString: String {
+        #if canImport(UIKit)
+        let ui = UIColor(self)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        ui.getRed(&r, green: &g, blue: &b, alpha: nil)
+        return String(format: "%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        #else
+        return "E94B26"
+        #endif
+    }
+
     private static func deterministicAccent(for seed: String) -> Color {
         let palette: [Color] = [
             Color(red: 0.77, green: 0.45, blue: 0.29),  // terracotta
@@ -63,7 +75,15 @@ extension Color {
             Color(red: 0.70, green: 0.45, blue: 0.65),  // mauve
             Color(red: 0.50, green: 0.40, blue: 0.30),  // mocha
         ]
-        let idx = abs(seed.hashValue) % palette.count
+        // Use a stable FNV-1a hash instead of String.hashValue, which is randomized
+        // per process launch (Swift hash randomization). This ensures the same node/user
+        // always gets the same color across app restarts.
+        var hash: UInt32 = 2166136261
+        for byte in seed.utf8 {
+            hash ^= UInt32(byte)
+            hash = hash &* 16777619
+        }
+        let idx = Int(hash) % palette.count
         return palette[idx]
     }
 }

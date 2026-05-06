@@ -11,6 +11,7 @@ struct GalleryView: View {
     @State private var selectedPhoto: Photo?
     @State private var showAdd = false
     @State private var members: [NodeMember] = []
+    @State private var lastRefreshed: Date = .distantPast
 
     private let columns = [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)]
 
@@ -55,7 +56,13 @@ struct GalleryView: View {
             members = (try? await NodeService.shared.members(of: nodeId)) ?? []
         }
         .onChange(of: scenePhase) { _, phase in
-            if phase == .active { Task { await photos.fetchPhotos(nodeId: nodeId) } }
+            guard phase == .active else { return }
+            // Debounce: skip if we refreshed within the last 30 seconds.
+            guard Date().timeIntervalSince(lastRefreshed) > 30 else { return }
+            // Skip background refresh on expensive (cellular/constrained) connections.
+            guard !NetworkMonitor.shared.isExpensive else { return }
+            lastRefreshed = Date()
+            Task { await photos.fetchPhotos(nodeId: nodeId) }
         }
     }
 

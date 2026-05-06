@@ -27,32 +27,12 @@ final class BoopService {
         guard let session = AuthService.shared.session else { return }
         let title = "Someone booped you"
         let body = message?.isEmpty == false ? message! : "Tap to see who"
-
-        struct PushBody: Encodable {
-            let node_id: UUID
-            let author_user_id: UUID
-            let title: String
-            let body: String
-            let category: String
-        }
-        for nodeId in nodeIds {
-            var request = URLRequest(url: Constants.Backend.pushFanoutURL)
-            request.httpMethod = "POST"
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
-            let payload = PushBody(
-                node_id: nodeId,
-                author_user_id: session.user.id,
-                title: title,
-                body: body,
-                category: "node-boop"
-            )
-            request.httpBody = try? JSONEncoder().encode(payload)
-            do {
-                _ = try await URLSession.shared.data(for: request)
-            } catch {
-                Log.shared.error("boop_push_failed", error: error)
-            }
-        }
+        await PushService.shared.sendMultiNode(
+            nodeIds: nodeIds,
+            authorUserId: session.user.id,
+            title: title,
+            body: body,
+            category: "node-boop"
+        )
     }
 }

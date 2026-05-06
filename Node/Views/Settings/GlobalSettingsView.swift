@@ -6,6 +6,7 @@ struct GlobalSettingsView: View {
 
     @State private var displayName = ""
     @State private var saving = false
+    @State private var saveError: String?
     @State private var showDeleteConfirm = false
     @State private var deleting = false
     @State private var deleteError: String?
@@ -17,6 +18,9 @@ struct GlobalSettingsView: View {
                     TextField("Display name", text: $displayName)
                     Button(saving ? "Saving…" : "Save") { saveProfile() }
                         .disabled(saving)
+                    if let saveError {
+                        Text(saveError).font(.footnote).foregroundStyle(.red)
+                    }
                 }
 
                 Section("Legal") {
@@ -41,9 +45,6 @@ struct GlobalSettingsView: View {
                 }
             }
             .navigationTitle("Settings")
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Done") { dismiss() } }
-            }
             .onAppear { displayName = auth.profile?.displayName ?? "" }
             .alert("Delete account?", isPresented: $showDeleteConfirm) {
                 Button("Cancel", role: .cancel) {}
@@ -56,16 +57,21 @@ struct GlobalSettingsView: View {
 
     private func saveProfile() {
         saving = true
+        saveError = nil
         Task {
-            guard let userId = auth.profile?.id.uuidString else { saving = false; return }
+            defer { saving = false }
+            guard let userId = auth.profile?.id.uuidString else { return }
             struct UserPatch: Encodable { let display_name: String }
-            try? await SupabaseService.shared.database
-                .from("users")
-                .update(UserPatch(display_name: displayName))
-                .eq("id", value: userId)
-                .execute()
-            try? await auth.fetchProfile()
-            saving = false
+            do {
+                try await SupabaseService.shared.database
+                    .from("users")
+                    .update(UserPatch(display_name: displayName))
+                    .eq("id", value: userId)
+                    .execute()
+                try await auth.fetchProfile()
+            } catch {
+                saveError = UserFacingError.message(for: error)
+            }
         }
     }
 

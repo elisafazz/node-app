@@ -41,12 +41,23 @@ final class CloudinaryService {
 
     /// Uploads a UIImage to Cloudinary. Stories go to `user/{author_user_id}/stories/` (cross-node, ADR-012),
     /// photos to `node/{node_id}/photos/`. `nodeId` required for photos, ignored for stories.
-    func upload(image: UIImage, kind: Kind, nodeId: UUID? = nil, jpegQuality: CGFloat = 0.85) async throws -> String {
+    /// Images are downsampled to maxDimension 1920 before encoding to keep bandwidth and Cloudinary storage reasonable.
+    func upload(image: UIImage, kind: Kind, nodeId: UUID? = nil) async throws -> String {
         let signature = try await fetchSignature(kind: kind, nodeId: nodeId)
-        guard let imageData = image.jpegData(compressionQuality: jpegQuality) else {
+        let compressed = compress(image)
+        guard let imageData = compressed.jpegData(compressionQuality: 0.80) else {
             throw CloudinaryError.imageEncodingFailed
         }
         return try await postMultipart(imageData: imageData, signature: signature)
+    }
+
+    private func compress(_ image: UIImage, maxDimension: CGFloat = 1920) -> UIImage {
+        let size = image.size
+        guard max(size.width, size.height) > maxDimension else { return image }
+        let scale = maxDimension / max(size.width, size.height)
+        let newSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: newSize)
+        return renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: newSize)) }
     }
 
     private func fetchSignature(kind: Kind, nodeId: UUID?) async throws -> UploadSignature {

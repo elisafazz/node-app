@@ -68,4 +68,9 @@ final class PhotoService {
             .execute()
         await fetchPhotos(nodeId: photo.nodeId)
     }
+
+    func clearCache() {
+        photosByNodeId = [:]
+        lastError = nil
+    }
 }

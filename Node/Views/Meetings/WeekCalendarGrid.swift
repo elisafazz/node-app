@@ -10,7 +10,7 @@ struct WeekCalendarGrid: View {
     let totalRespondents: Int           // for showing X/total badge
     @Binding var selectedStarts: Set<Date>
 
-    private let hourRange = 8...21      // 8am slot through 9pm slot start
+    private let hourRange = 6...23      // 6am slot through 11pm slot start (covers early/late cross-timezone needs)
     private let timeGutterWidth: CGFloat = 38
     private let cellHeight: CGFloat = 44
 
