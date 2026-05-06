@@ -6,6 +6,7 @@ struct MeetingsListView: View {
     @State private var meetings: [Meeting] = []
     @State private var showCreate = false
     @State private var isLoading = false
+    @State private var errorMessage: String?
 
     private var me: UUID? { auth.session?.user.id }
 
@@ -43,6 +44,19 @@ struct MeetingsListView: View {
     private var content: some View {
         if isLoading && meetings.isEmpty {
             ProgressView()
+        } else if let errorMessage, meetings.isEmpty {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.system(size: 36))
+                    .foregroundStyle(.secondary)
+                Text(errorMessage)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 32)
+                Button("Retry") { Task { await load() } }
+                    .tint(Color.nodeBrand)
+            }
         } else if meetings.isEmpty {
             emptyState
         } else {
@@ -183,8 +197,10 @@ struct MeetingsListView: View {
 
     private func load() async {
         isLoading = true
+        errorMessage = nil
         await MeetingService.shared.fetchMyMeetings()
         meetings = MeetingService.shared.myMeetings
+        errorMessage = MeetingService.shared.lastError
         isLoading = false
     }
 

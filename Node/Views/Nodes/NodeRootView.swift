@@ -28,9 +28,11 @@ struct NodeRootView: View {
         .navigationTitle(node.name)
         .navigationBarTitleDisplayMode(.inline)
         .task {
-            await StoryService.shared.fetchActive(nodeId: node.id)
-            await PhotoService.shared.fetchPhotos(nodeId: node.id)
-            await ThoughtService.shared.fetchThoughts(nodeId: node.id)
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { await StoryService.shared.fetchActive(nodeId: node.id) }
+                group.addTask { await PhotoService.shared.fetchPhotos(nodeId: node.id) }
+                group.addTask { await ThoughtService.shared.fetchThoughts(nodeId: node.id) }
+            }
         }
         .onChange(of: nodes.myNodes) { _, current in
             if !current.contains(where: { $0.id == node.id }) {

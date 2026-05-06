@@ -11,7 +11,20 @@ struct MyNodesView: View {
         NavigationStack {
             ZStack {
                 Color.nodeBackground.ignoresSafeArea()
-                if nodes.myNodes.isEmpty {
+                if let error = nodes.lastError, nodes.myNodes.isEmpty {
+                    VStack(spacing: 14) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.secondary)
+                        Text(error)
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 32)
+                        Button("Retry") { Task { await nodes.loadMyNodes() } }
+                            .tint(Color.nodeBrand)
+                    }
+                } else if nodes.myNodes.isEmpty {
                     emptyState
                 } else {
                     nodeList

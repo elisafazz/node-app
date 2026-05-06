@@ -11,6 +11,7 @@ struct MeetingDetailView: View {
     @State private var myResponses: [UUID: Bool] = [UUID: Bool]()
     @State private var pendingChanges: [UUID: Bool] = [UUID: Bool]()
     @State private var weekStart: Date = Date().startOfWeek
+    @State private var isLoading = false
     @State private var isSaving = false
     @State private var isConfirming = false
     @State private var confirmSlot: MeetingSlot? = nil
@@ -38,6 +39,17 @@ struct MeetingDetailView: View {
                     case .cancelled:
                         cancelledContent
                     }
+
+                    if let errorMessage {
+                        Text(errorMessage)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .padding()
+                    }
+                }
+
+                if isLoading {
+                    ProgressView()
                 }
             }
             .navigationTitle(meeting.title)
@@ -122,13 +134,6 @@ struct MeetingDetailView: View {
             if isOrganizer && !slots.isEmpty {
                 Divider()
                 organizerActions
-            }
-
-            if let errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding()
             }
         }
     }
@@ -226,12 +231,15 @@ struct MeetingDetailView: View {
     // MARK: - Actions
 
     private func load() async {
+        isLoading = true
+        errorMessage = nil
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await MeetingService.shared.fetchSlots(meetingId: meeting.id) }
             group.addTask { await MeetingService.shared.fetchResponses(meetingId: meeting.id) }
         }
         slots = MeetingService.shared.slotsByMeetingId[meeting.id] ?? []
         responses = MeetingService.shared.responsesByMeetingId[meeting.id] ?? []
+        errorMessage = MeetingService.shared.lastError
         if let me {
             myResponses = Dictionary(uniqueKeysWithValues:
                 responses
@@ -239,6 +247,7 @@ struct MeetingDetailView: View {
                     .map { ($0.slotId, $0.available) }
             )
         }
+        isLoading = false
     }
 
     private func saveResponses() async {
