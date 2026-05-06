@@ -14,8 +14,8 @@ struct ThoughtsView: View {
     @State private var posting = false
 
     var body: some View {
-        NavigationStack {
-            VStack(spacing: 0) {
+        // No NavigationStack here -- parent NodeRootView is inside RootView's TabView NavigationStack.
+        VStack(spacing: 0) {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         let nodeThoughts = (thoughts.thoughtsByNodeId[nodeId] ?? []).filter { !blocks.isBlocked($0.authorUserId) }
@@ -87,7 +87,6 @@ struct ThoughtsView: View {
             } message: {
                 Text("Their content will be hidden across every node you share. They won't be notified.")
             }
-        }
         .task { await refresh() }
         .onChange(of: scenePhase) { _, phase in
             guard phase == .active else { return }

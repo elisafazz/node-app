@@ -141,7 +141,8 @@ struct StoryArchiveView: View {
             StoryPlayerView(
                 stories: [story],
                 author: author,
-                onDismiss: { openedStory = nil }
+                onDismiss: { openedStory = nil },
+                viewingNodeId: nodeId
             )
         } else {
             // Fallback if author membership is missing -- still show the photo

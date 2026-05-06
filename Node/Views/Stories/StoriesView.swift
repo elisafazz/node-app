@@ -50,8 +50,10 @@ struct StoriesView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .bottomTrailing) {
+        // No NavigationStack here -- we are already inside the parent NodeRootView's
+        // segmented Picker content, which lives inside RootView's TabView -> NavigationStack.
+        // Triple-nesting breaks nav bars and titles.
+        ZStack(alignment: .bottomTrailing) {
                 Color.nodeBackground.ignoresSafeArea()
                 VStack(spacing: 0) {
                     if isLoading && activeStories.isEmpty {
@@ -91,10 +93,9 @@ struct StoriesView: View {
                     .padding(.trailing, 20)
                     .padding(.bottom, 24)
             }
-            .navigationTitle("Stories")
-            .navigationDestination(isPresented: $showArchive) {
-                StoryArchiveView(nodeId: nodeId, authors: members)
-            }
+        .navigationTitle("Stories")
+        .navigationDestination(isPresented: $showArchive) {
+            StoryArchiveView(nodeId: nodeId, authors: members)
         }
         .sheet(isPresented: $showCompose) {
             StoryComposeView(defaultNodeId: nodeId, onPosted: { _ in })
@@ -108,7 +109,8 @@ struct StoriesView: View {
                 authors: rankedAuthors.filter { $0.user.id != auth.session?.user.id && !reel(for: $0).isEmpty },
                 startingAuthor: author,
                 reelFor: { reel(for: $0) },
-                onDismiss: { playingAuthor = nil }
+                onDismiss: { playingAuthor = nil },
+                viewingNodeId: nodeId
             )
         }
         .task(id: nodeId) { await load(force: false) }
@@ -197,7 +199,13 @@ struct StoriesView: View {
     /// because origin_node_id is telemetry-only after migration 0002 -- a story shared to this node may
     /// have been authored from a different one. We also handle visibility deletes so un-shares clear live.
     private func subscribeToStories() async {
-        let channel = SupabaseService.shared.client.channel("story_visibility:\(nodeId.uuidString)")
+        // Use a per-subscription UUID in the channel name so rapid nodeId switches
+        // (or returning to the same node) never collide on Supabase's channel
+        // registry. If we used a deterministic name like "story_visibility:<nodeId>"
+        // a stale unsubscribe could race with a fresh subscribe and either drop
+        // events or leave a duplicate channel running.
+        let subscriptionId = UUID().uuidString
+        let channel = SupabaseService.shared.client.channel("story_visibility:\(nodeId.uuidString):\(subscriptionId)")
         let insertions = channel.postgresChange(
             InsertAction.self,
             schema: "public",
@@ -211,19 +219,24 @@ struct StoriesView: View {
             filter: "node_id=eq.\(nodeId.uuidString)"
         )
         await channel.subscribe()
-        defer { Task { await channel.unsubscribe() } }
         await withTaskGroup(of: Void.self) { group in
             group.addTask {
                 for await _ in insertions {
+                    if Task.isCancelled { break }
                     await stories.fetchActive(nodeId: nodeId)
                 }
             }
             group.addTask {
                 for await _ in deletions {
+                    if Task.isCancelled { break }
                     await stories.fetchActive(nodeId: nodeId)
                 }
             }
         }
+        // Awaited unsubscribe -- runs after the task group is cancelled (.task(id:)
+        // re-fire) so the next subscription starts cleanly. Detached fire-and-forget
+        // versions can race the new subscribe and corrupt channel state.
+        await channel.unsubscribe()
     }
 
     private func load(force: Bool) async {

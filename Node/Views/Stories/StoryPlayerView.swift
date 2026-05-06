@@ -12,14 +12,22 @@ struct StoryPlayerView: View {
     var onReelComplete: (() -> Void)? = nil
     var onRequestPrevious: (() -> Void)? = nil
     var isActive: Bool = true
+    /// The node the viewer is currently viewing this story from. Used for: scoping
+    /// the report (otherwise it submits with telemetry origin_node_id which is
+    /// often null for cross-node posts), and gating the owner-only "Remove from
+    /// this node" moderation affordance.
+    var viewingNodeId: UUID? = nil
 
     @Environment(AuthService.self) private var auth
+    @Environment(NodeService.self) private var nodes
+    @Environment(StoryService.self) private var storyService
     @State private var currentIndex: Int = 0
     @State private var progress: Double = 0
     @State private var isPaused: Bool = false
     @State private var prefetchedURLs: Set<URL> = []
     @State private var showReport = false
     @State private var showBlockConfirm = false
+    @State private var showRemoveConfirm = false
 
     private let storyDuration: TimeInterval = 5.0
     private let tickInterval: TimeInterval = 0.05
@@ -53,6 +61,14 @@ struct StoryPlayerView: View {
     private var currentStory: Story? {
         guard stories.indices.contains(currentIndex) else { return nil }
         return stories[currentIndex]
+    }
+
+    /// True when the viewer is an owner-role member of the node they're currently
+    /// viewing this story from. Powers the "Remove from this node" moderation
+    /// affordance, which calls the delete_story_visibility RPC.
+    private var isViewerOwnerOfViewingNode: Bool {
+        guard let nodeId = viewingNodeId else { return false }
+        return nodes.myMembershipsByNodeId[nodeId]?.role == .owner
     }
 
     var body: some View {
@@ -134,8 +150,32 @@ struct StoryPlayerView: View {
         }
         .sheet(isPresented: $showReport, onDismiss: { isPaused = showBlockConfirm }) {
             if let story = currentStory {
-                ReportSheet(targetKind: .story, targetId: story.id, nodeId: story.originNodeId)
+                // Prefer the viewer's current node context over the author's
+                // origin_node_id (which is telemetry-only and often null for
+                // cross-node posts). Falls back to origin if no viewing context.
+                ReportSheet(
+                    targetKind: .story,
+                    targetId: story.id,
+                    nodeId: viewingNodeId ?? story.originNodeId
+                )
             }
+        }
+        .confirmationDialog(
+            "Remove from this node?",
+            isPresented: $showRemoveConfirm,
+            titleVisibility: .visible
+        ) {
+            Button("Remove", role: .destructive) {
+                Task {
+                    if let story = currentStory, let nodeId = viewingNodeId {
+                        try? await storyService.removeFromNode(storyId: story.id, nodeId: nodeId)
+                        onDismiss()
+                    }
+                }
+            }
+            Button("Cancel", role: .cancel) { isPaused = false }
+        } message: {
+            Text("This story stays visible in other nodes it was shared to. Only you, as node owner, see this option.")
         }
         .confirmationDialog(
             "Block \(author.displayName)?",
@@ -205,6 +245,9 @@ struct StoryPlayerView: View {
             if author.user.id != auth.session?.user.id {
                 Menu {
                     Button("Report story", systemImage: "flag") { showReport = true; isPaused = true }
+                    if isViewerOwnerOfViewingNode {
+                        Button("Remove from this node", systemImage: "eye.slash") { showRemoveConfirm = true; isPaused = true }
+                    }
                     Button("Block \(author.displayName)", systemImage: "person.slash", role: .destructive) { showBlockConfirm = true; isPaused = true }
                 } label: {
                     Image(systemName: "ellipsis")

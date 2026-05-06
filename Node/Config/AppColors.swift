@@ -54,15 +54,16 @@ extension Color {
         self = Color(red: r, green: g, blue: b)
     }
 
-    /// Returns a 6-char uppercase hex string (no #) for the color's RGB components.
+    /// Returns a `#RRGGBB` uppercase hex string for the color's RGB components.
+    /// The `#` prefix is required by the memberships.per_node_accent_color CHECK constraint.
     var hexString: String {
         #if canImport(UIKit)
         let ui = UIColor(self)
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
         ui.getRed(&r, green: &g, blue: &b, alpha: nil)
-        return String(format: "%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
+        return String(format: "#%02X%02X%02X", Int(r * 255), Int(g * 255), Int(b * 255))
         #else
-        return "E94B26"
+        return "#E94B26"
         #endif
     }
 

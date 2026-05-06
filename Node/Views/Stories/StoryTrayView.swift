@@ -10,6 +10,10 @@ struct StoryTrayView: View {
     let authors: [NodeMember]
     let reelFor: (NodeMember) -> [Story]
     let onDismiss: () -> Void
+    /// The node the viewer is browsing stories from. Threaded into StoryPlayerView so
+    /// reports get scoped correctly and the owner-only moderation menu can render.
+    /// Nil when launched from Hub aggregated feed (no single viewing node).
+    var viewingNodeId: UUID? = nil
 
     @State private var currentAuthor: NodeMember
     @State private var showReplay: Bool = false
@@ -22,11 +26,13 @@ struct StoryTrayView: View {
         authors: [NodeMember],
         startingAuthor: NodeMember,
         reelFor: @escaping (NodeMember) -> [Story],
-        onDismiss: @escaping () -> Void
+        onDismiss: @escaping () -> Void,
+        viewingNodeId: UUID? = nil
     ) {
         self.authors = authors
         self.reelFor = reelFor
         self.onDismiss = onDismiss
+        self.viewingNodeId = viewingNodeId
         _currentAuthor = State(initialValue: authors.contains(startingAuthor)
                                ? startingAuthor
                                : (authors.first ?? startingAuthor))
@@ -44,7 +50,8 @@ struct StoryTrayView: View {
                         onRequestPrevious: { back(from: author) },
                         // Pause the visible player while the replay overlay is up
                         // so its progress task doesn't keep ticking past the end.
-                        isActive: currentAuthor == author && !showReplay
+                        isActive: currentAuthor == author && !showReplay,
+                        viewingNodeId: viewingNodeId
                     )
                     .tag(author)
                 }

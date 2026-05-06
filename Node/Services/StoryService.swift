@@ -139,6 +139,19 @@ final class StoryService {
         await fetchAllVisible()
     }
 
+    /// Removes a story's visibility from a single node without deleting the story globally.
+    /// Server-side delete_story_visibility RPC enforces that the caller is the node owner.
+    func removeFromNode(storyId: UUID, nodeId: UUID) async throws {
+        struct RPCParams: Encodable {
+            let p_story_id: UUID
+            let p_node_id: UUID
+        }
+        try await SupabaseService.shared.database
+            .rpc("delete_story_visibility", params: RPCParams(p_story_id: storyId, p_node_id: nodeId))
+            .execute()
+        await fetchActive(nodeId: nodeId)
+    }
+
     func clearCache() {
         activeByNodeId = [:]
         archiveByNodeIdYear = [:]

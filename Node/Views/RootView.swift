@@ -32,6 +32,23 @@ struct RootView: View {
         .onReceive(NotificationCenter.default.publisher(for: .pushRegistrationFailed)) { note in
             pushErrorMessage = note.object as? String ?? "Push notifications could not be enabled on this device."
         }
+        .onReceive(NotificationCenter.default.publisher(for: .pushNotificationTapped)) { note in
+            // Map APNs categories to top-level tabs. Deep-linking to a specific
+            // story / meeting / boop is a follow-up; this at least lands the user
+            // on the relevant surface instead of the home tab.
+            guard let userInfo = note.userInfo,
+                  let category = userInfo["category"] as? String else { return }
+            switch category {
+            case "node-story", "node-boop":
+                selectedTab = 0  // Hub
+            case "node-meeting-confirmed", "node-meeting-poll":
+                selectedTab = 2  // Calendar
+            case "node-thought":
+                selectedTab = 1  // Nodes (per-node tab is where thoughts live)
+            default:
+                break
+            }
+        }
         .alert("Push notifications unavailable", isPresented: Binding(
             get: { pushErrorMessage != nil },
             set: { if !$0 { pushErrorMessage = nil } }

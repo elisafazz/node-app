@@ -4,6 +4,10 @@ import UserNotifications
 
 extension Notification.Name {
     static let pushRegistrationFailed = Notification.Name("com.elisafazzari.node.pushRegistrationFailed")
+    /// Posted when the user taps a push notification. userInfo carries the APNs
+    /// payload (category, node_id, story_id, meeting_id, etc.) so RootView can
+    /// route to the correct destination.
+    static let pushNotificationTapped = Notification.Name("com.elisafazzari.node.pushNotificationTapped")
 }
 
 @main
@@ -84,5 +88,25 @@ final class NodeAppDelegate: NSObject, UIApplicationDelegate, UNUserNotification
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         completionHandler([.banner, .sound])
+    }
+
+    /// User tapped a notification (foreground or background). Forward the userInfo
+    /// to RootView via NotificationCenter so it can route to the relevant destination
+    /// (story player, meeting detail, boop inbox, etc.). Without this, taps just open
+    /// the app to whatever tab was last active, making notifications useless.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let userInfo = response.notification.request.content.userInfo
+        Task { @MainActor in
+            NotificationCenter.default.post(
+                name: .pushNotificationTapped,
+                object: nil,
+                userInfo: userInfo
+            )
+        }
+        completionHandler()
     }
 }

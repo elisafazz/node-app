@@ -20,8 +20,8 @@ struct GalleryView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            ZStack(alignment: .bottomTrailing) {
+        // No NavigationStack here -- parent NodeRootView is inside RootView's TabView NavigationStack.
+        ZStack(alignment: .bottomTrailing) {
                 Color.nodeBackground.ignoresSafeArea()
                 if nodePhotos.isEmpty {
                     emptyState
@@ -43,8 +43,7 @@ struct GalleryView: View {
                     .padding(.trailing, 20)
                     .padding(.bottom, 24)
             }
-            .navigationTitle("Gallery")
-        }
+        .navigationTitle("Gallery")
         .sheet(isPresented: $showAdd) {
             AddPhotoView(nodeId: nodeId)
         }
