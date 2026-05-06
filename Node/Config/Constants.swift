@@ -2,13 +2,13 @@ import Foundation
 
 enum Constants {
     enum Backend {
-        static let supabaseURL = URL(string: "https://YOUR-PROJECT.supabase.co")!  // Set via Phase 1 once Supabase project exists
-        static let supabaseAnonKey = "YOUR_SUPABASE_ANON_KEY"  // Public, safe to embed
-        static let pushFanoutURL = URL(string: "https://node-backend.vercel.app/api/push")!
+        static let supabaseURL = URL(string: "https://dbytvajhgtkigarirxni.supabase.co")!
+        static let supabaseAnonKey = "sb_publishable_wX22cZiuKkCAe8NilA27cg_3Nsf5xJJ"  // Public, safe to embed
+        static let pushFanoutURL = URL(string: "https://node-app-backend.vercel.app/api/push")!
     }
 
     enum Cloudinary {
-        static let cloudName = "YOUR_CLOUDINARY_CLOUD"
+        static let cloudName = "dhkw1tuq6"
     }
 
     enum AppleSignIn {
@@ -31,9 +31,9 @@ enum Constants {
     }
 
     enum URLs {
-        static let tos = URL(string: "https://node-backend.vercel.app/tos")!
-        static let privacy = URL(string: "https://node-backend.vercel.app/privacy")!
-        static let eula = URL(string: "https://node-backend.vercel.app/eula")!
-        static let contact = URL(string: "https://node-backend.vercel.app/contact")!
+        static let tos = URL(string: "https://node-app-backend.vercel.app/tos")!
+        static let privacy = URL(string: "https://node-app-backend.vercel.app/privacy")!
+        static let eula = URL(string: "https://node-app-backend.vercel.app/eula")!
+        static let contact = URL(string: "https://node-app-backend.vercel.app/contact")!
     }
 }

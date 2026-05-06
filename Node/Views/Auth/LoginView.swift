@@ -34,7 +34,7 @@ struct LoginView: View {
                             .foregroundStyle(.secondary)
                     }
                 }
-                .toggleStyle(.checkbox)
+                .toggleStyle(.switch)
             }
             .padding(.horizontal)
 

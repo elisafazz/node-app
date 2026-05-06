@@ -2,7 +2,7 @@ import SwiftUI
 
 struct ThoughtsView: View {
     let nodeId: UUID
-    @Environment(ThoughtService.self) private var thoughts = ThoughtService.shared
+    @Environment(ThoughtService.self) private var thoughts
     @Environment(\.scenePhase) private var scenePhase
     @State private var newThought = ""
     @State private var error: String?
@@ -62,7 +62,7 @@ struct ThoughtsView: View {
             .refreshable { await thoughts.fetchThoughts(nodeId: nodeId) }
         }
         .task { await thoughts.fetchThoughts(nodeId: nodeId) }
-        .onChange(of: scenePhase) { _, phase in
+        .onChange(of: scenePhase) { phase in
             if phase == .active { Task { await thoughts.fetchThoughts(nodeId: nodeId) } }
         }
     }
