@@ -1,6 +1,8 @@
 import SwiftUI
 
-/// Full-bleed IG-style player. Tap right to advance, tap left to go back, hold to pause, drag down to dismiss.
+/// Full-bleed IG-style player. Tap right to advance, tap left to go back, hold to pause.
+/// Dismiss is via the X button only -- swipe-down was removed because partial drags left
+/// a stuck black bar at the top of the screen.
 /// Ported verbatim from Miracles `StoryPlayerView` with one swap: per-author identity comes from a `NodeMember`
 /// runtime record (display_name + accent color from membership overrides) instead of a compile-time Person enum.
 struct StoryPlayerView: View {
@@ -14,7 +16,6 @@ struct StoryPlayerView: View {
     @State private var currentIndex: Int = 0
     @State private var progress: Double = 0
     @State private var isPaused: Bool = false
-    @State private var dragOffset: CGFloat = 0
     @State private var prefetchedURLs: Set<URL> = []
 
     private let storyDuration: TimeInterval = 5.0
@@ -117,20 +118,6 @@ struct StoryPlayerView: View {
                 .padding(.horizontal, 12)
                 .padding(.top, 8)
             }
-            .offset(y: dragOffset)
-            .gesture(
-                DragGesture()
-                    .onChanged { value in
-                        if value.translation.height > 0 { dragOffset = value.translation.height }
-                    }
-                    .onEnded { value in
-                        if value.translation.height > 120 {
-                            onDismiss()
-                        } else {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) { dragOffset = 0 }
-                        }
-                    }
-            )
             .onLongPressGesture(minimumDuration: 0.2, maximumDistance: 50) {
                 // perform: required closure, intentionally empty
             } onPressingChanged: { pressing in
