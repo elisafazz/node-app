@@ -2,6 +2,8 @@ import SwiftUI
 
 struct NodeRootView: View {
     let node: NodeRecord
+    @Environment(NodeService.self) private var nodes
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         TabView {
@@ -23,6 +25,11 @@ struct NodeRootView: View {
             await StoryService.shared.fetchActive(nodeId: node.id)
             await PhotoService.shared.fetchPhotos(nodeId: node.id)
             await ThoughtService.shared.fetchThoughts(nodeId: node.id)
+        }
+        .onChange(of: nodes.myNodes) { _, current in
+            if !current.contains(where: { $0.id == node.id }) {
+                dismiss()
+            }
         }
     }
 }

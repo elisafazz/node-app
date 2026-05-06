@@ -8,6 +8,7 @@ struct GlobalSettingsView: View {
     @State private var saving = false
     @State private var showDeleteConfirm = false
     @State private var deleting = false
+    @State private var deleteError: String?
 
     var body: some View {
         NavigationStack {
@@ -32,7 +33,11 @@ struct GlobalSettingsView: View {
 
                 Section("Account") {
                     Button("Sign out") { signOut() }
-                    Button("Delete account", role: .destructive) { showDeleteConfirm = true }
+                    Button(deleting ? "Deleting…" : "Delete account", role: .destructive) { showDeleteConfirm = true }
+                        .disabled(deleting)
+                    if let deleteError {
+                        Text(deleteError).font(.footnote).foregroundStyle(.red)
+                    }
                 }
             }
             .navigationTitle("Settings")
@@ -73,9 +78,14 @@ struct GlobalSettingsView: View {
 
     private func deleteAccount() {
         deleting = true
+        deleteError = nil
         Task {
-            try? await auth.deleteAccount()
-            dismiss()
+            do {
+                try await auth.deleteAccount()
+                dismiss()
+            } catch {
+                deleteError = "Deletion failed: \(UserFacingError.message(for: error)). Try again or contact support."
+            }
             deleting = false
         }
     }

@@ -9,6 +9,8 @@ struct NodeSettingsView: View {
     @State private var perNodeEmoji = ""
     @State private var perNodeAccentHex = ""
     @State private var saving = false
+    @State private var showRotateConfirm = false
+    @State private var showLeaveConfirm = false
 
     var body: some View {
         NavigationStack {
@@ -18,7 +20,7 @@ struct NodeSettingsView: View {
                     LabeledContent("Members") { Text("Up to \(node.memberCap)") }
                     LabeledContent("Invite code", value: liveInviteCode)
                     if isOwner {
-                        Button("Rotate invite code") { rotateCode() }
+                        Button("Rotate invite code") { showRotateConfirm = true }
                     }
                 }
 
@@ -38,11 +40,23 @@ struct NodeSettingsView: View {
                 }
 
                 Section {
-                    Button("Leave node", role: .destructive) { leave() }
+                    Button("Leave node", role: .destructive) { showLeaveConfirm = true }
                 }
             }
             .onAppear { loadFromMembership() }
             .navigationTitle("Settings")
+            .alert("Rotate invite code?", isPresented: $showRotateConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Rotate", role: .destructive) { rotateCode() }
+            } message: {
+                Text("The current code will stop working. Anyone who hasn't joined yet will need the new code.")
+            }
+            .alert("Leave node?", isPresented: $showLeaveConfirm) {
+                Button("Cancel", role: .cancel) {}
+                Button("Leave", role: .destructive) { leave() }
+            } message: {
+                Text("You will lose access to all content in \(node.name). You can rejoin with an invite code.")
+            }
         }
     }
 
