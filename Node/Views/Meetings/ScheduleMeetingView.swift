@@ -49,11 +49,12 @@ struct ScheduleMeetingView: View {
                     }
                 }
             }
+            // Only pre-select when launched from a specific node.
+            // When launched from Hub (no defaultNodeId), require explicit selection --
+            // an accidental Create would schedule a poll across all members unintentionally.
             .task {
                 if let defaultNodeId {
                     selectedNodeIds = [defaultNodeId]
-                } else {
-                    selectedNodeIds = Set(nodes.myNodes.map(\.id))
                 }
             }
         }

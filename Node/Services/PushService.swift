@@ -16,7 +16,7 @@ final class PushService {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
         self.deviceToken = token
         Log.shared.push("device_token_received")
-        await persistTokenToMyMemberships(token)
+        await persistDeviceToken(token)
     }
 
     /// In-context prompt: call this from CreateNodeView/JoinNodeView success paths.
@@ -57,14 +57,24 @@ final class PushService {
         UIApplication.shared.registerForRemoteNotifications()
     }
 
-    private func persistTokenToMyMemberships(_ token: String) async {
-        struct DeviceTokenPatch: Encodable { let device_token: String }
+    private func persistDeviceToken(_ token: String) async {
+        struct DeviceTokenUpsert: Encodable {
+            let user_id: UUID
+            let token: String
+            let updated_at: String
+        }
         guard let me = AuthService.shared.session?.user.id else { return }
+        let payload = DeviceTokenUpsert(
+            user_id: me,
+            token: token,
+            updated_at: ISO8601DateFormatter().string(from: Date())
+        )
         do {
+            // upsert on the unique token column: if this device already has a row,
+            // update user_id + updated_at (handles re-installs where same token gets a new user).
             try await SupabaseService.shared.database
-                .from("memberships")
-                .update(DeviceTokenPatch(device_token: token))
-                .eq("user_id", value: me.uuidString)
+                .from("device_tokens")
+                .upsert(payload, onConflict: "token")
                 .execute()
         } catch {
             Log.shared.error("device_token_persist_failed", error: error)

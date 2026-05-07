@@ -85,7 +85,7 @@ struct GalleryView: View {
                 .font(.title3.weight(.bold))
                 .foregroundStyle(.white)
                 .frame(width: 56, height: 56)
-                .background(Circle().fill(Color.nodeAccent))
+                .background(Circle().fill(Color.nodeBrand))
                 .shadow(radius: 6, y: 2)
         }
     }

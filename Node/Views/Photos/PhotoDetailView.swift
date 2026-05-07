@@ -9,6 +9,7 @@ struct PhotoDetailView: View {
     @State private var showReport = false
     @State private var showBlockConfirm = false
     @State private var deleteConfirm = false
+    @State private var deleteError: String?
     @State private var imageLoadId = UUID()
 
     private var author: NodeMember? { members.first { $0.user.id == photo.authorUserId } }
@@ -96,10 +97,19 @@ struct PhotoDetailView: View {
                 Button("Cancel", role: .cancel) {}
                 Button("Delete", role: .destructive) {
                     Task {
-                        try? await PhotoService.shared.deletePhoto(photo)
-                        dismiss()
+                        do {
+                            try await PhotoService.shared.deletePhoto(photo)
+                            dismiss()
+                        } catch {
+                            deleteError = UserFacingError.message(for: error)
+                        }
                     }
                 }
+            }
+            .alert("Couldn't delete photo", isPresented: Binding(get: { deleteError != nil }, set: { if !$0 { deleteError = nil } })) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(deleteError ?? "")
             }
             .confirmationDialog(
                 author.map { "Block \($0.displayName)?" } ?? "",

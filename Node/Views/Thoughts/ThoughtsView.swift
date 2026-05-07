@@ -44,7 +44,7 @@ struct ThoughtsView: View {
                         TextField("Share a thought…", text: $newThought, axis: .vertical)
                             .lineLimit(1...4)
                             .padding(8)
-                            .background(Color.gray.opacity(0.1))
+                            .background(Color.nodeSurface)
                             .cornerRadius(8)
                             .onChange(of: newThought) { _, value in
                                 if value.count > 2000 {
@@ -128,12 +128,18 @@ struct ThoughtsView: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color.gray.opacity(0.08))
+        .background(Color.nodeSurface)
         .cornerRadius(10)
         .contextMenu {
             if isOwn {
                 Button(role: .destructive) {
-                    Task { try? await ThoughtService.shared.deleteThought(thought) }
+                    Task {
+                        do {
+                            try await ThoughtService.shared.deleteThought(thought)
+                        } catch {
+                            self.error = UserFacingError.message(for: error)
+                        }
+                    }
                 } label: {
                     Label("Delete", systemImage: "trash")
                 }

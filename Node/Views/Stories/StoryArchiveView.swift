@@ -113,7 +113,7 @@ struct StoryArchiveView: View {
                         Text(String(year))
                             .font(.subheadline.weight(selectedYear == year ? .semibold : .regular))
                             .padding(.horizontal, 14).padding(.vertical, 8)
-                            .background(selectedYear == year ? Color.nodeAccent : Color.nodeSurface)
+                            .background(selectedYear == year ? Color.nodeBrand : Color.nodeSurface)
                             .foregroundStyle(selectedYear == year ? Color.white : Color.nodeText)
                             .clipShape(Capsule())
                     }
