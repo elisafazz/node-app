@@ -15,7 +15,7 @@ targets:
     info:
       path: Node/Resources/Info.plist
       properties:
-        CFBundleDisplayName: Node
+        CFBundleDisplayName: Node Hub
         CFBundleShortVersionString: 0.1.0
         CFBundleVersion: 1
         UILaunchScreen:
