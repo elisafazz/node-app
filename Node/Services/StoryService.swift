@@ -11,6 +11,12 @@ final class StoryService {
     private(set) var allVisible: [Story] = []
     private(set) var lastError: String?
 
+    private static let iso8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
+
     private func archiveKey(nodeId: UUID, year: Int) -> String { "\(nodeId.uuidString)-\(year)" }
 
     /// Active stories for a single node, resolved via story_visibility (supports cross-node posts).
@@ -24,7 +30,7 @@ final class StoryService {
                 .from("stories")
                 .select("*, story_visibility!inner(node_id)")
                 .eq("story_visibility.node_id", value: nodeId.uuidString)
-                .gt("expires_at", value: ISO8601DateFormatter().string(from: threshold))
+                .gt("expires_at", value: Self.iso8601.string(from: threshold))
                 .order("created_at", ascending: false)
                 .execute()
                 .value
@@ -46,7 +52,7 @@ final class StoryService {
             let raw: [Story] = try await SupabaseService.shared.database
                 .from("stories")
                 .select()
-                .gt("expires_at", value: ISO8601DateFormatter().string(from: Date()))
+                .gt("expires_at", value: Self.iso8601.string(from: Date()))
                 .order("created_at", ascending: false)
                 .limit(200)
                 .execute()
@@ -70,8 +76,8 @@ final class StoryService {
             // causing stories posted in the first hours of a new year to appear in the wrong bucket.
             var cal = Calendar(identifier: .gregorian)
             cal.timeZone = TimeZone(identifier: "UTC")!
-            let yearStart = ISO8601DateFormatter().string(from: cal.date(from: DateComponents(year: year, month: 1, day: 1))!)
-            let yearEnd = ISO8601DateFormatter().string(from: cal.date(from: DateComponents(year: year + 1, month: 1, day: 1))!)
+            let yearStart = Self.iso8601.string(from: cal.date(from: DateComponents(year: year, month: 1, day: 1))!)
+            let yearEnd = Self.iso8601.string(from: cal.date(from: DateComponents(year: year + 1, month: 1, day: 1))!)
             let stories: [Story] = try await SupabaseService.shared.database
                 .from("stories")
                 .select("*, story_visibility!inner(node_id)")
@@ -93,6 +99,7 @@ final class StoryService {
         nodeIds: [UUID],
         cloudinaryPublicId: String,
         caption: String?,
+        location: String? = nil,
         originNodeId: UUID? = nil
     ) async throws -> Story {
         guard let userId = AuthService.shared.session?.user.id else {
@@ -132,16 +139,46 @@ final class StoryService {
             Log.shared.error("create_story_rpc_failed orphan=\(cloudinaryPublicId)", error: error)
             throw error
         }
+        // Location is patched in via a follow-up UPDATE rather than threaded into
+        // the create_story_with_visibility RPC -- avoids changing the RPC signature
+        // (which would need a new migration + service_role grant rebuild) and keeps
+        // the RPC focused on the multi-node visibility insert. RLS lets the author
+        // update their own row.
+        //
+        // Critically, the patch failure must NOT throw. The story has already been
+        // committed by the RPC; if we threw here, the caller's catch would surface
+        // an error and a retry would skip the upload (cached publicID) but call the
+        // RPC again, creating a duplicate story for the same image. Location is a
+        // non-critical optional field -- log and continue is the safe path.
+        if let location, !location.isEmpty {
+            struct LocationPatch: Encodable { let location: String }
+            do {
+                try await SupabaseService.shared.database
+                    .from("stories")
+                    .update(LocationPatch(location: location))
+                    .eq("id", value: result.story_id.uuidString)
+                    .execute()
+            } catch {
+                Log.shared.error("create_story_location_patch_failed story_id=\(result.story_id)", error: error)
+            }
+        }
         let story = Story(
             id: result.story_id,
             originNodeId: originNodeId,
             authorUserId: userId,
             cloudinaryPublicId: cloudinaryPublicId,
             caption: caption,
+            location: location,
             createdAt: Date(),
             expiresAt: result.expires_at
         )
-        for nodeId in nodeIds { await fetchActive(nodeId: nodeId) }
+        // Refresh per-node caches in parallel rather than sequentially -- posting
+        // to 5 nodes shouldn't take 5x the round-trip time.
+        await withTaskGroup(of: Void.self) { group in
+            for nodeId in nodeIds {
+                group.addTask { @MainActor in await self.fetchActive(nodeId: nodeId) }
+            }
+        }
         await fetchAllVisible()
         await PushService.shared.fanOutStoryNotification(nodeIds: nodeIds, authorUserId: userId, caption: caption)
         return story
@@ -153,6 +190,13 @@ final class StoryService {
             .delete()
             .eq("id", value: storyId.uuidString)
             .execute()
+        // The DB delete cascades to story_visibility, so the story is gone in every
+        // node it was shared to -- not just the one the user invoked deletion from.
+        // Strip it out of every cached node bucket so the user doesn't see ghost
+        // stories in the other nodes until they manually pull-to-refresh.
+        for key in activeByNodeId.keys {
+            activeByNodeId[key]?.removeAll { $0.id == storyId }
+        }
         await fetchActive(nodeId: nodeId)
         await fetchAllVisible()
     }

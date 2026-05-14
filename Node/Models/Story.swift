@@ -9,6 +9,7 @@ struct Story: Identifiable, Codable, Hashable, Sendable {
     let authorUserId: UUID
     let cloudinaryPublicId: String
     var caption: String?
+    var location: String?
     let createdAt: Date
     let expiresAt: Date
 
@@ -18,8 +19,34 @@ struct Story: Identifiable, Codable, Hashable, Sendable {
         case authorUserId = "author_user_id"
         case cloudinaryPublicId = "cloudinary_public_id"
         case caption
+        case location
         case createdAt = "created_at"
         case expiresAt = "expires_at"
+    }
+
+    // location was added in migration 0011. Decode tolerantly so a Story row
+    // from a not-yet-migrated env still loads.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.originNodeId = try c.decodeIfPresent(UUID.self, forKey: .originNodeId)
+        self.authorUserId = try c.decode(UUID.self, forKey: .authorUserId)
+        self.cloudinaryPublicId = try c.decode(String.self, forKey: .cloudinaryPublicId)
+        self.caption = try c.decodeIfPresent(String.self, forKey: .caption)
+        self.location = try c.decodeIfPresent(String.self, forKey: .location)
+        self.createdAt = try c.decode(Date.self, forKey: .createdAt)
+        self.expiresAt = try c.decode(Date.self, forKey: .expiresAt)
+    }
+
+    init(id: UUID, originNodeId: UUID?, authorUserId: UUID, cloudinaryPublicId: String, caption: String?, location: String? = nil, createdAt: Date, expiresAt: Date) {
+        self.id = id
+        self.originNodeId = originNodeId
+        self.authorUserId = authorUserId
+        self.cloudinaryPublicId = cloudinaryPublicId
+        self.caption = caption
+        self.location = location
+        self.createdAt = createdAt
+        self.expiresAt = expiresAt
     }
 
     var thumbnailURL: URL? {

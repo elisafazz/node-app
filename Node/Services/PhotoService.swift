@@ -69,6 +69,38 @@ final class PhotoService {
         await fetchPhotos(nodeId: photo.nodeId)
     }
 
+    /// Toggle the favorite flag on a photo. Optimistic local update + DB write.
+    /// RLS policy photos_update_own (in 0001_init.sql) restricts writes to the
+    /// author, so calling this from a viewer who doesn't own the photo will
+    /// throw and we'll roll the cache back.
+    func toggleFavorite(_ photo: Photo) async throws {
+        struct FavoritePatch: Encodable { let is_favorite: Bool }
+        let newValue = !photo.isFavorite
+
+        // Optimistic local update for instant UI feedback.
+        if var arr = photosByNodeId[photo.nodeId],
+           let idx = arr.firstIndex(where: { $0.id == photo.id }) {
+            arr[idx].isFavorite = newValue
+            photosByNodeId[photo.nodeId] = arr
+        }
+
+        do {
+            try await SupabaseService.shared.database
+                .from("photos")
+                .update(FavoritePatch(is_favorite: newValue))
+                .eq("id", value: photo.id.uuidString)
+                .execute()
+        } catch {
+            // Roll back the optimistic update on failure.
+            if var arr = photosByNodeId[photo.nodeId],
+               let idx = arr.firstIndex(where: { $0.id == photo.id }) {
+                arr[idx].isFavorite = !newValue
+                photosByNodeId[photo.nodeId] = arr
+            }
+            throw error
+        }
+    }
+
     func clearCache() {
         photosByNodeId = [:]
         lastError = nil

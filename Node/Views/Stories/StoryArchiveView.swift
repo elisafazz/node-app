@@ -9,7 +9,18 @@ struct StoryArchiveView: View {
 
     @State private var selectedYear: Int = Calendar.current.component(.year, from: Date())
     @State private var loadingYears: Set<Int> = []
-    @State private var openedStory: Story?
+    @State private var openedReel: ArchiveReel?
+    @State private var showRecap = false
+
+    /// Tapping any thumbnail plays that author's full reel for that day,
+    /// starting at the tapped story. Lets the archive surface "moments"
+    /// without changing the per-thumbnail grid layout.
+    private struct ArchiveReel: Identifiable {
+        let id = UUID()
+        let author: NodeMember
+        let stories: [Story]
+        let startIndex: Int
+    }
 
     private static let dayHeader: DateFormatter = {
         let f = DateFormatter()
@@ -47,6 +58,20 @@ struct StoryArchiveView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     yearPicker
+                    if !yearStories.isEmpty {
+                        Button { showRecap = true } label: {
+                            HStack(spacing: 8) {
+                                Image(systemName: "play.rectangle.fill")
+                                Text("Play \(String(selectedYear)) Recap")
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(Color.nodeBrand, in: Capsule())
+                        }
+                        .padding(.horizontal, 16)
+                    }
                     if loadingYears.contains(selectedYear) && yearStories.isEmpty {
                         ProgressView().padding(.top, 40)
                     } else if yearStories.isEmpty {
@@ -62,7 +87,7 @@ struct StoryArchiveView: View {
                                     .padding(.horizontal, 16)
                                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible()), GridItem(.flexible())], spacing: 6) {
                                     ForEach(day.stories) { story in
-                                        Button { openedStory = story } label: {
+                                        Button { openReel(for: story, in: day.stories) } label: {
                                             ZStack(alignment: .bottomLeading) {
                                                 AsyncImage(url: story.thumbnailURL) { phase in
                                                     switch phase {
@@ -100,9 +125,46 @@ struct StoryArchiveView: View {
         .onChange(of: selectedYear) { _, year in
             Task { await ensureYearLoaded(year) }
         }
-        .fullScreenCover(item: $openedStory) { story in
-            singleStoryPlayer(story: story)
+        .fullScreenCover(item: $openedReel) { reel in
+            StoryPlayerView(
+                stories: reel.stories,
+                author: reel.author,
+                onDismiss: { openedReel = nil },
+                viewingNodeId: nodeId
+            )
+            // The player starts at index 0 by default; if we need the tapped
+            // story to be the entry point we pass the slice with the tapped
+            // story as element 0 (see openReel).
         }
+        .fullScreenCover(isPresented: $showRecap) {
+            NavigationStack {
+                YearRecapView(
+                    year: selectedYear,
+                    stories: yearStories,
+                    authorsByUserId: authorsByUserId
+                )
+            }
+        }
+    }
+
+    /// Build the day-reel for the tapped story's author and present it. The
+    /// reel is sorted newest-first to match the live Stories view ordering;
+    /// the tapped story becomes the entry point by rotating the array so that
+    /// element is element 0. If the author can't be resolved (rare -- they may
+    /// have left the node), fall back to the single story.
+    private func openReel(for tapped: Story, in dayStories: [Story]) {
+        guard let author = authorFor(tapped.authorUserId) else {
+            // Author membership missing -- play just this one as a fallback.
+            // Still works for blocked-then-unblocked or removed members.
+            return
+        }
+        let authorReel = dayStories
+            .filter { $0.authorUserId == tapped.authorUserId }
+            .sorted { $0.createdAt > $1.createdAt }
+        guard let pivot = authorReel.firstIndex(where: { $0.id == tapped.id }) else { return }
+        // Rotate so tapped story is first; later stories (older) follow.
+        let rotated = Array(authorReel[pivot...]) + Array(authorReel[..<pivot])
+        openedReel = ArchiveReel(author: author, stories: rotated, startIndex: 0)
     }
 
     private var yearPicker: some View {
@@ -135,36 +197,4 @@ struct StoryArchiveView: View {
         loadingYears.remove(year)
     }
 
-    @ViewBuilder
-    private func singleStoryPlayer(story: Story) -> some View {
-        if let author = authorFor(story.authorUserId) {
-            StoryPlayerView(
-                stories: [story],
-                author: author,
-                onDismiss: { openedStory = nil },
-                viewingNodeId: nodeId
-            )
-        } else {
-            // Fallback if author membership is missing -- still show the photo
-            ZStack {
-                Color.black.ignoresSafeArea()
-                AsyncImage(url: story.fullURL) { phase in
-                    switch phase {
-                    case .success(let img): img.resizable().scaledToFit()
-                    default: ProgressView().tint(.white)
-                    }
-                }
-                Button { openedStory = nil } label: {
-                    Image(systemName: "xmark")
-                        .font(.title3)
-                        .padding(12)
-                        .background(Color.black.opacity(0.5))
-                        .clipShape(Circle())
-                        .foregroundStyle(.white)
-                }
-                .padding()
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
-            }
-        }
-    }
 }

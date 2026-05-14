@@ -77,12 +77,34 @@ struct StoryPlayerView: View {
                 Color.black.ignoresSafeArea()
 
                 if let currentStory {
+                    // Blurred backdrop layer: photo scaled-to-fill the screen,
+                    // heavily blurred. Photos with non-9:16 aspect (library
+                    // imports, baked images with caption padding) get a
+                    // letterbox-blur instead of a hard crop, so user-positioned
+                    // captions near the edges always remain visible at playback.
+                    AsyncImage(url: currentStory.fullURL) { phase in
+                        if case .success(let image) = phase {
+                            image
+                                .resizable()
+                                .scaledToFill()
+                                .blur(radius: 32)
+                                .frame(width: geo.size.width, height: geo.size.height)
+                                .clipped()
+                        } else {
+                            Color.black
+                        }
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                    .clipped()
+                    .ignoresSafeArea()
+
+                    // Foreground photo: scaledToFit so nothing is cropped.
                     AsyncImage(url: currentStory.fullURL) { phase in
                         switch phase {
                         case .empty:
                             ProgressView().tint(.white)
                         case .success(let image):
-                            image.resizable().scaledToFill()
+                            image.resizable().scaledToFit()
                         case .failure:
                             VStack(spacing: 8) {
                                 Image(systemName: "exclamationmark.triangle").font(.system(size: 32))
@@ -94,7 +116,6 @@ struct StoryPlayerView: View {
                         }
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
-                    .clipped()
                     .ignoresSafeArea()
                 }
 
@@ -234,9 +255,16 @@ struct StoryPlayerView: View {
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                 if let story = currentStory {
-                    Text(relativeTimeLabel(for: story.createdAt))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.85))
+                    HStack(spacing: 4) {
+                        Text(relativeTimeLabel(for: story.createdAt))
+                        if let loc = story.location, !loc.isEmpty {
+                            Text("•")
+                            Text(loc)
+                                .lineLimit(1)
+                        }
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.85))
                 }
             }
 

@@ -10,42 +10,68 @@ struct GalleryView: View {
 
     @State private var selectedPhoto: Photo?
     @State private var showAdd = false
+    @State private var showBulkImport = false
+    @State private var favoritesOnly = false
     @State private var members: [NodeMember] = []
     @State private var lastRefreshed: Date = .distantPast
 
     private let columns = [GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4), GridItem(.flexible(), spacing: 4)]
 
     private var nodePhotos: [Photo] {
-        (photos.photosByNodeId[nodeId] ?? []).filter { !blocks.isBlocked($0.authorUserId) }
+        let visible = (photos.photosByNodeId[nodeId] ?? []).filter { !blocks.isBlocked($0.authorUserId) }
+        let filtered = favoritesOnly ? visible.filter(\.isFavorite) : visible
+        // Pin favorites to the top; the underlying fetch already orders by created_at desc.
+        return filtered.filter(\.isFavorite) + filtered.filter { !$0.isFavorite }
     }
 
     var body: some View {
         // No NavigationStack here -- parent NodeRootView is inside RootView's TabView NavigationStack.
         ZStack(alignment: .bottomTrailing) {
                 Color.nodeBackground.ignoresSafeArea()
-                if nodePhotos.isEmpty {
+                if nodePhotos.isEmpty && !favoritesOnly {
                     emptyState
                 } else {
-                    ScrollView {
-                        LazyVGrid(columns: columns, spacing: 4) {
-                            ForEach(nodePhotos) { photo in
-                                Button { selectedPhoto = photo } label: {
-                                    GalleryCell(photo: photo)
+                    VStack(spacing: 0) {
+                        favoritesFilterBar
+                        ScrollView {
+                            if nodePhotos.isEmpty {
+                                Text("No favorites yet. Tap the star on any photo to keep it here.")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.secondary)
+                                    .multilineTextAlignment(.center)
+                                    .padding(.horizontal, 40)
+                                    .padding(.top, 40)
+                            } else {
+                                LazyVGrid(columns: columns, spacing: 4) {
+                                    ForEach(nodePhotos) { photo in
+                                        Button { selectedPhoto = photo } label: {
+                                            GalleryCell(photo: photo)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
                                 }
-                                .buttonStyle(.plain)
+                                .padding(4)
                             }
                         }
-                        .padding(4)
+                        .refreshable { await photos.fetchPhotos(nodeId: nodeId) }
                     }
-                    .refreshable { await photos.fetchPhotos(nodeId: nodeId) }
                 }
-                addFAB
-                    .padding(.trailing, 20)
-                    .padding(.bottom, 24)
+                HStack {
+                    bulkImportFAB
+                        .padding(.leading, 20)
+                    Spacer()
+                    addFAB
+                        .padding(.trailing, 20)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.bottom, 24)
             }
         .navigationTitle("Gallery")
         .sheet(isPresented: $showAdd) {
             AddPhotoView(nodeId: nodeId)
+        }
+        .sheet(isPresented: $showBulkImport) {
+            BulkImportView(nodeId: nodeId)
         }
         .sheet(item: $selectedPhoto) { photo in
             PhotoDetailView(photo: photo, members: members)
@@ -79,6 +105,36 @@ struct GalleryView: View {
         }
     }
 
+    private var favoritesFilterBar: some View {
+        HStack(spacing: 8) {
+            Button {
+                favoritesOnly.toggle()
+                UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: favoritesOnly ? "star.fill" : "star")
+                        .font(.system(size: 11, weight: .semibold))
+                    Text("Favorites")
+                        .font(.system(size: 13, weight: favoritesOnly ? .semibold : .regular))
+                }
+                .foregroundStyle(favoritesOnly ? Color.nodeBrand : .secondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 7)
+                .background(favoritesOnly ? Color.nodeBrand.opacity(0.12) : Color.nodeSurface, in: Capsule())
+                .overlay(
+                    Capsule().stroke(
+                        favoritesOnly ? Color.nodeBrand.opacity(0.8) : Color.clear,
+                        lineWidth: 1
+                    )
+                )
+            }
+            .buttonStyle(.plain)
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
+    }
+
     private var addFAB: some View {
         Button { showAdd = true } label: {
             Image(systemName: "plus")
@@ -88,6 +144,19 @@ struct GalleryView: View {
                 .background(Circle().fill(Color.nodeBrand))
                 .shadow(radius: 6, y: 2)
         }
+        .accessibilityLabel("Add photo")
+    }
+
+    private var bulkImportFAB: some View {
+        Button { showBulkImport = true } label: {
+            Image(systemName: "photo.stack.fill")
+                .font(.title3.weight(.semibold))
+                .foregroundStyle(Color.nodeBrand)
+                .frame(width: 48, height: 48)
+                .background(Circle().fill(Color.nodeSurface))
+                .shadow(radius: 4, y: 2)
+        }
+        .accessibilityLabel("Add multiple photos")
     }
 }
 

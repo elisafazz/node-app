@@ -10,13 +10,35 @@ final class PushService {
     static let shared = PushService()
 
     private(set) var deviceToken: String?
+    // APNs delivers the device token as soon as the OS has it -- often before
+    // AuthService.bootstrap has finished restoring the Supabase session. Hold the
+    // token here and let drainPendingToken flush it after sign-in completes.
+    private var pendingToken: String?
+
+    private static let iso8601: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime]
+        return f
+    }()
 
     /// Called by AppDelegate after APNs returns a token in response to `registerForRemoteNotifications()`.
     func registerDeviceToken(_ tokenData: Data) async {
         let token = tokenData.map { String(format: "%02x", $0) }.joined()
         self.deviceToken = token
         Log.shared.push("device_token_received")
-        await persistDeviceToken(token)
+        if AuthService.shared.session != nil {
+            await persistDeviceToken(token)
+        } else {
+            pendingToken = token
+        }
+    }
+
+    /// Called by AuthService.bootstrap and signInWithApple once a session is established,
+    /// so a token captured during the unauthenticated window finally lands in device_tokens.
+    func drainPendingToken() async {
+        guard let t = pendingToken else { return }
+        pendingToken = nil
+        await persistDeviceToken(t)
     }
 
     /// In-context prompt: call this from CreateNodeView/JoinNodeView success paths.
@@ -63,11 +85,15 @@ final class PushService {
             let token: String
             let updated_at: String
         }
-        guard let me = AuthService.shared.session?.user.id else { return }
+        guard let me = AuthService.shared.session?.user.id else {
+            // Bootstrap still hasn't finished -- keep the token queued.
+            pendingToken = token
+            return
+        }
         let payload = DeviceTokenUpsert(
             user_id: me,
             token: token,
-            updated_at: ISO8601DateFormatter().string(from: Date())
+            updated_at: Self.iso8601.string(from: Date())
         )
         do {
             // upsert on the unique token column: if this device already has a row,
@@ -114,8 +140,11 @@ final class PushService {
         var request = URLRequest(url: Constants.Backend.pushFanoutURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        if let session = AuthService.shared.session {
-            request.setValue("Bearer \(session.accessToken)", forHTTPHeaderField: "Authorization")
+        // Pull the access token from the live SDK session, NOT AuthService.session,
+        // which is a snapshot from sign-in/bootstrap and goes stale after the SDK's
+        // background refresh (~1h). Using the snapshot causes 401s once expired.
+        if let accessToken = try? await SupabaseService.shared.auth.session.accessToken {
+            request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
         }
         let payload = PushBody(
             node_ids: nodeIds,
@@ -126,7 +155,14 @@ final class PushService {
         )
         request.httpBody = try? JSONEncoder().encode(payload)
         do {
-            _ = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
+            // URLSession only throws on transport errors -- HTTP 4xx/5xx come back as
+            // a normal response object. Surface the status so a misconfigured push
+            // pipeline (expired JWT, bad payload, server outage) is visible in logs.
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                let bodySnippet = String(data: data.prefix(200), encoding: .utf8) ?? ""
+                Log.shared.push("push_fanout_http_\(http.statusCode): \(bodySnippet)")
+            }
         } catch {
             Log.shared.error("push_fanout_failed", error: error)
         }

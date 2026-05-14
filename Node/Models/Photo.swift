@@ -7,6 +7,7 @@ struct Photo: Identifiable, Codable, Hashable, Sendable {
     let cloudinaryPublicId: String
     var caption: String?
     var tag: String?
+    var isFavorite: Bool
     let createdAt: Date
 
     enum CodingKeys: String, CodingKey {
@@ -16,7 +17,33 @@ struct Photo: Identifiable, Codable, Hashable, Sendable {
         case cloudinaryPublicId = "cloudinary_public_id"
         case caption
         case tag
+        case isFavorite = "is_favorite"
         case createdAt = "created_at"
+    }
+
+    // is_favorite was added in migration 0011. Decode tolerantly so a Photo
+    // row read from a not-yet-migrated env still loads (default false).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(UUID.self, forKey: .id)
+        self.nodeId = try c.decode(UUID.self, forKey: .nodeId)
+        self.authorUserId = try c.decode(UUID.self, forKey: .authorUserId)
+        self.cloudinaryPublicId = try c.decode(String.self, forKey: .cloudinaryPublicId)
+        self.caption = try c.decodeIfPresent(String.self, forKey: .caption)
+        self.tag = try c.decodeIfPresent(String.self, forKey: .tag)
+        self.isFavorite = (try? c.decode(Bool.self, forKey: .isFavorite)) ?? false
+        self.createdAt = try c.decode(Date.self, forKey: .createdAt)
+    }
+
+    init(id: UUID, nodeId: UUID, authorUserId: UUID, cloudinaryPublicId: String, caption: String?, tag: String?, isFavorite: Bool = false, createdAt: Date) {
+        self.id = id
+        self.nodeId = nodeId
+        self.authorUserId = authorUserId
+        self.cloudinaryPublicId = cloudinaryPublicId
+        self.caption = caption
+        self.tag = tag
+        self.isFavorite = isFavorite
+        self.createdAt = createdAt
     }
 
     var thumbnailURL: URL? {

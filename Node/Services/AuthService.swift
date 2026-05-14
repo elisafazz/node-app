@@ -46,6 +46,8 @@ final class AuthService: NSObject {
         } catch {
             Log.shared.error("apple_code_exchange_failed", error: error)
         }
+        // Drain any APNs token captured before the session existed.
+        await PushService.shared.drainPendingToken()
     }
 
     private func exchangeAppleCode(_ code: String) async throws {
@@ -72,16 +74,24 @@ final class AuthService: NSObject {
     }
 
     func signOut() async throws {
+        // Local state is the source of truth for "is this app signed in." If the
+        // server signOut throws (network down, token already revoked), holding on
+        // to a stale session leaves the UI in a half-signed-in state that the user
+        // can't recover from -- they tap Sign Out, it errors, but they're still
+        // visibly signed in. Defer guarantees the local clear runs whether the
+        // server call succeeds or throws.
+        defer {
+            self.session = nil
+            self.profile = nil
+            // Clear all cached feature data so a subsequent sign-in starts clean.
+            NodeService.shared.clearCache()
+            StoryService.shared.clearCache()
+            PhotoService.shared.clearCache()
+            ThoughtService.shared.clearCache()
+            MeetingService.shared.clearCache()
+            BlockService.shared.clearCache()
+        }
         try await SupabaseService.shared.auth.signOut()
-        self.session = nil
-        self.profile = nil
-        // Clear all cached feature data so a subsequent sign-in starts clean.
-        NodeService.shared.clearCache()
-        StoryService.shared.clearCache()
-        PhotoService.shared.clearCache()
-        ThoughtService.shared.clearCache()
-        MeetingService.shared.clearCache()
-        BlockService.shared.clearCache()
     }
 
     /// Calls the delete-user-data Edge Function which performs the full Apple-compliant cascade.
@@ -103,13 +113,24 @@ final class AuthService: NSObject {
 
     /// Restore session on app launch.
     func bootstrap() async {
+        // Distinguish "Supabase has no valid session" (real signed-out state)
+        // from "fetchProfile failed on a transient network error" (still signed in,
+        // just couldn't load the user row yet). The old combined catch wiped a valid
+        // session every time the profile query hiccuped on launch.
         do {
-            let session = try await SupabaseService.shared.auth.session
-            self.session = session
-            try await fetchProfile()
+            self.session = try await SupabaseService.shared.auth.session
         } catch {
             self.session = nil
             self.profile = nil
+            return
         }
+        // Profile fetch is best-effort -- a transient failure here must not log the user out.
+        do {
+            try await fetchProfile()
+        } catch {
+            Log.shared.error("bootstrap_profile_fetch_failed", error: error)
+        }
+        // Drain any APNs token that arrived before the session was restored.
+        await PushService.shared.drainPendingToken()
     }
 }

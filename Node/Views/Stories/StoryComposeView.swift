@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import AVFoundation
 
 /// Camera-first compose view with cross-node posting (ADR-012).
 /// Pass a defaultNodeId to pre-select one node; nil pre-selects all nodes (Hub flow).
@@ -19,6 +20,7 @@ struct StoryComposeView: View {
     @State private var pickerItem: PhotosPickerItem?
     @State private var image: UIImage?
     @State private var caption: String = ""
+    @State private var location: String = ""
     @State private var selectedNodeIds: Set<UUID> = []
     @State private var isPosting = false
     @State private var errorMessage: String?
@@ -26,6 +28,22 @@ struct StoryComposeView: View {
     @State private var showCamera = false
     @State private var showLibrary = false
     @State private var didAutoLaunchCamera = false
+    // Cached publicID for retry: if Cloudinary upload succeeded but the
+    // subsequent createStory RPC failed, hold the publicID so a retry does
+    // not re-upload (which would orphan the first asset in Cloudinary).
+    @State private var lastUploadedPublicID: String?
+
+    // Caption preview overlay placement. Starts at .bottomLeading anchor
+    // (offset 0,0). User can drag to reposition; offset is clamped on drag
+    // end so the rendered text stays inside the photo's frame.
+    @State private var captionOffset: CGSize = .zero
+    @State private var captionDragInProgress: CGSize = .zero
+
+    private static let photoHeight: CGFloat = 480
+    // Conservative drag clamps -- text wider than the bounds just hits the
+    // wall, much better than letting the caption render off the photo.
+    private static let captionDragMaxX: CGFloat = 100
+    private static let captionDragMaxY: CGFloat = 400
 
     var body: some View {
         NavigationStack {
@@ -36,6 +54,7 @@ struct StoryComposeView: View {
                         photoArea
                         if image != nil {
                             captionField
+                            locationField
                             nodeSelector
                         }
                         if let errorMessage {
@@ -73,12 +92,7 @@ struct StoryComposeView: View {
                         selectedNodeIds = Set(nodes.myNodes.map(\.id))
                     }
                 }
-                // Camera-first: open camera automatically on first appearance if available.
-                guard !didAutoLaunchCamera,
-                      image == nil,
-                      UIImagePickerController.isSourceTypeAvailable(.camera) else { return }
-                didAutoLaunchCamera = true
-                showCamera = true
+                await maybeAutoLaunchCamera()
             }
         }
     }
@@ -92,13 +106,17 @@ struct StoryComposeView: View {
                     .resizable()
                     .scaledToFill()
                     .frame(maxWidth: .infinity)
-                    .frame(height: 480)
+                    .frame(height: Self.photoHeight)
                     .clipped()
                     .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .overlay(alignment: .bottomLeading) { captionPreviewOverlay }
                     .overlay(alignment: .topTrailing) {
                         Button {
                             self.image = nil
                             self.pickerItem = nil
+                            self.captionOffset = .zero
+                            self.captionDragInProgress = .zero
+                            self.lastUploadedPublicID = nil
                         } label: {
                             Image(systemName: "xmark.circle.fill")
                                 .font(.system(size: 24))
@@ -108,18 +126,6 @@ struct StoryComposeView: View {
                         }
                         .accessibilityLabel("Remove photo")
                         .padding(10)
-                    }
-                    .overlay(alignment: .bottomLeading) {
-                        if !caption.isEmpty {
-                            Text(caption)
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 8)
-                                .background(Color.black.opacity(0.45))
-                                .clipShape(Capsule())
-                                .padding(16)
-                        }
                     }
             } else {
                 Button {
@@ -137,7 +143,7 @@ struct StoryComposeView: View {
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 320)
+                    .frame(height: Self.photoHeight)
                     .background(Color.nodeSurface)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
@@ -165,6 +171,43 @@ struct StoryComposeView: View {
         }
     }
 
+    /// Live caption preview rendered on the photo. Anchored bottom-leading so
+    /// offset 0,0 = anchor position. User can drag to reposition; offsets are
+    /// clamped on drag end so the rendered text stays inside the photo's frame.
+    /// At upload time the caption is BAKED into the JPEG via ImageRenderer so
+    /// every viewer sees it at the exact dragged position.
+    @ViewBuilder
+    private var captionPreviewOverlay: some View {
+        if !caption.isEmpty {
+            Text(caption)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.45))
+                .clipShape(Capsule())
+                .padding(16)
+                .offset(
+                    x: captionOffset.width + captionDragInProgress.width,
+                    y: captionOffset.height + captionDragInProgress.height
+                )
+                .gesture(
+                    DragGesture()
+                        .onChanged { value in
+                            captionDragInProgress = value.translation
+                        }
+                        .onEnded { value in
+                            let newX = captionOffset.width + value.translation.width
+                            let newY = captionOffset.height + value.translation.height
+                            captionOffset.width = max(-Self.captionDragMaxX, min(Self.captionDragMaxX, newX))
+                            captionOffset.height = max(-Self.captionDragMaxY, min(0, newY))
+                            captionDragInProgress = .zero
+                        }
+                )
+        }
+    }
+
     // MARK: - Caption
 
     private var captionField: some View {
@@ -174,6 +217,18 @@ struct StoryComposeView: View {
                 .foregroundStyle(.secondary)
             TextField("Say something...", text: $caption, axis: .vertical)
                 .lineLimit(1...4)
+                .padding(12)
+                .background(Color.nodeSurface)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+        }
+    }
+
+    private var locationField: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Where (optional)", systemImage: "mappin.and.ellipse")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+            TextField("Sunset Park", text: $location)
                 .padding(12)
                 .background(Color.nodeSurface)
                 .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -249,8 +304,16 @@ struct StoryComposeView: View {
         do {
             if let data = try await item.loadTransferable(type: Data.self),
                let img = UIImage(data: data) {
-                self.image = img
+                // Downsample large Photos library assets (up to 48MP on newer
+                // iPhones) before holding them in memory. Without this the
+                // compose sheet can OOM-crash on older devices the moment a
+                // Pro photo is selected. 1080x1920 is the maximum resolution
+                // Cloudinary will serve from an active story.
+                let target = CGSize(width: 1080, height: 1920)
+                let downsized = img.preparingThumbnail(of: target) ?? img
+                self.image = downsized
                 self.errorMessage = nil
+                self.lastUploadedPublicID = nil
             } else {
                 self.pickerItem = nil
                 self.errorMessage = "Couldn't load that photo. Try another."
@@ -261,28 +324,109 @@ struct StoryComposeView: View {
         }
     }
 
+    private func maybeAutoLaunchCamera() async {
+        // Camera-first compose: open camera as soon as the sheet appears.
+        // Permission gate avoids the black-screen UX on denied access.
+        guard !didAutoLaunchCamera,
+              image == nil,
+              UIImagePickerController.isSourceTypeAvailable(.camera) else { return }
+        didAutoLaunchCamera = true
+
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            showCamera = true
+        case .notDetermined:
+            let granted = await AVCaptureDevice.requestAccess(for: .video)
+            if granted { showCamera = true }
+        case .denied, .restricted:
+            break
+        @unknown default:
+            break
+        }
+    }
+
+    @MainActor
     private func post() async {
-        guard let image else { return }
+        guard let originalImage = image else { return }
         guard !selectedNodeIds.isEmpty else { return }
         isPosting = true
         errorMessage = nil
         defer { isPosting = false }
 
         do {
-            let publicId = try await CloudinaryService.shared.upload(image: image, kind: .story)
-            let trimmedCaption = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Bake the user's caption at its dragged position into the upload.
+            // If we have a cached publicID from a previous attempt that failed
+            // post-upload, skip the upload to avoid orphaning the prior asset.
+            let imageToUpload = bakeCaptionIntoImage() ?? originalImage
+
+            let publicId: String
+            if let cached = lastUploadedPublicID {
+                publicId = cached
+            } else {
+                publicId = try await CloudinaryService.shared.upload(image: imageToUpload, kind: .story)
+                lastUploadedPublicID = publicId
+            }
+
+            // When the caption was baked into the image, pass nil to the service
+            // so the player's overlay does not double-render text on top of the
+            // baked text. If bakeCaptionIntoImage returned nil (empty caption)
+            // we send nil regardless. The push body still uses trimmedCaption
+            // for the notification preview.
+            let trimmedLocation = location.trimmingCharacters(in: .whitespacesAndNewlines)
             let story = try await StoryService.shared.createStory(
                 nodeIds: Array(selectedNodeIds),
                 cloudinaryPublicId: publicId,
-                caption: trimmedCaption.isEmpty ? nil : trimmedCaption,
+                caption: nil,
+                location: trimmedLocation.isEmpty ? nil : trimmedLocation,
                 originNodeId: defaultNodeId
             )
+            lastUploadedPublicID = nil
             UINotificationFeedbackGenerator().notificationOccurred(.success)
             onPosted?(story)
             dismiss()
         } catch {
             errorMessage = UserFacingError.message(for: error)
         }
+    }
+
+    /// Render the photo + caption preview at the user's dragged position into
+    /// a single UIImage at upload time. ImageRenderer maps the SwiftUI preview
+    /// 1:1 onto the baked output -- gesture state is the source of truth, no
+    /// CoreGraphics math required. Returns nil if there's nothing to bake
+    /// (no image OR empty caption -- in the empty-caption case the caller
+    /// just uploads the original).
+    @MainActor
+    private func bakeCaptionIntoImage() -> UIImage? {
+        guard let originalImage = image else { return nil }
+        let trimmed = caption.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let displayWidth = UIScreen.main.bounds.width - 40
+        let displayHeight = Self.photoHeight
+
+        let composed = ZStack(alignment: .bottomLeading) {
+            Image(uiImage: originalImage)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: displayWidth, height: displayHeight)
+                .clipped()
+
+            Text(caption)
+                .font(.body.weight(.medium))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(Color.black.opacity(0.45))
+                .clipShape(Capsule())
+                .padding(16)
+                .offset(x: captionOffset.width, y: captionOffset.height)
+        }
+        .frame(width: displayWidth, height: displayHeight)
+
+        let renderer = ImageRenderer(content: composed)
+        renderer.scale = 3
+        return renderer.uiImage
     }
 }
 

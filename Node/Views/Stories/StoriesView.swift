@@ -16,6 +16,9 @@ struct StoriesView: View {
     @State private var showCompose = false
     @State private var playingAuthor: NodeMember? = nil
     @State private var showArchive = false
+    @State private var showYearRecap = false
+    @State private var recapYear: Int = Calendar.current.component(.year, from: Date())
+    @State private var recapStories: [Story] = []
 
     private static let dayHeader: DateFormatter = {
         let f = DateFormatter()
@@ -96,6 +99,16 @@ struct StoriesView: View {
         .navigationTitle("Stories")
         .navigationDestination(isPresented: $showArchive) {
             StoryArchiveView(nodeId: nodeId, authors: members)
+        }
+        .fullScreenCover(isPresented: $showYearRecap) {
+            NavigationStack {
+                let authorsByUserId = Dictionary(members.map { ($0.user.id, $0) }, uniquingKeysWith: { a, _ in a })
+                YearRecapView(
+                    year: recapYear,
+                    stories: recapStories,
+                    authorsByUserId: authorsByUserId
+                )
+            }
         }
         .sheet(isPresented: $showCompose) {
             StoryComposeView(defaultNodeId: nodeId, onPosted: { _ in })
@@ -248,5 +261,40 @@ struct StoriesView: View {
         _ = await storiesLoad
         members = await membersLoad
         isLoading = false
+        prefetchActiveStories()
+        await maybeAutoPresentRecap()
+    }
+
+    /// On Dec 31 auto-present the year recap once per node per year. The
+    /// `node_recap_shown_<nodeId>` UserDefaults key holds the last year a
+    /// recap was offered here, so a user dismissing it doesn't get re-prompted
+    /// on every cold launch the same day.
+    private func maybeAutoPresentRecap() async {
+        let cal = Calendar.current
+        let now = Date()
+        let comps = cal.dateComponents([.month, .day, .year], from: now)
+        guard comps.month == 12, comps.day == 31, let year = comps.year else { return }
+        let key = "node_recap_shown_\(nodeId.uuidString)"
+        if UserDefaults.standard.integer(forKey: key) >= year { return }
+        await stories.fetchArchive(nodeId: nodeId, year: year)
+        let archiveKey = "\(nodeId.uuidString)-\(year)"
+        let yearStories = (stories.archiveByNodeIdYear[archiveKey] ?? []).filter { !blocks.isBlocked($0.authorUserId) }
+        guard !yearStories.isEmpty else { return }
+        recapYear = year
+        recapStories = yearStories
+        showYearRecap = true
+        UserDefaults.standard.set(year, forKey: key)
+    }
+
+    /// Warm URLCache for every active story image as soon as the Stories tab
+    /// loads. AsyncImage in the player will then hit the cache instantly
+    /// instead of round-tripping when the user taps a ring. Skipped on
+    /// cellular / Low Data Mode -- the player will fall back to fetch-on-demand.
+    private func prefetchActiveStories() {
+        guard NetworkMonitor.shared.isUnconstrained else { return }
+        let urls: [URL] = activeStories.compactMap { $0.fullURL }
+        for url in urls {
+            Task.detached { _ = try? await URLSession.shared.data(from: url) }
+        }
     }
 }

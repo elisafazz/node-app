@@ -11,6 +11,7 @@ struct PhotoDetailView: View {
     @State private var deleteConfirm = false
     @State private var deleteError: String?
     @State private var imageLoadId = UUID()
+    @State private var isLoadingShare = false
 
     private var author: NodeMember? { members.first { $0.user.id == photo.authorUserId } }
     private var isMyPhoto: Bool { photo.authorUserId == auth.session?.user.id }
@@ -76,17 +77,40 @@ struct PhotoDetailView: View {
                     Button { dismiss() } label: { Image(systemName: "xmark").foregroundStyle(.white) }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
+                    HStack(spacing: 14) {
                         if isMyPhoto {
-                            Button("Edit", systemImage: "pencil") { showEdit = true }
-                            Button("Delete", systemImage: "trash", role: .destructive) { deleteConfirm = true }
-                        } else {
-                            Button("Report", systemImage: "flag") { showReport = true }
-                            if let author {
-                                Button("Block \(author.displayName)", systemImage: "person.slash", role: .destructive) { showBlockConfirm = true }
+                            Button {
+                                Task {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    try? await PhotoService.shared.toggleFavorite(photo)
+                                }
+                            } label: {
+                                Image(systemName: photo.isFavorite ? "star.fill" : "star")
+                                    .foregroundStyle(photo.isFavorite ? .yellow : .white)
+                                    .animation(.spring(response: 0.3, dampingFraction: 0.6), value: photo.isFavorite)
+                            }
+                            .accessibilityLabel(photo.isFavorite ? "Unfavorite photo" : "Favorite photo")
+                        }
+                        Button { Task { await shareImage() } } label: {
+                            if isLoadingShare {
+                                ProgressView().tint(.white)
+                            } else {
+                                Image(systemName: "square.and.arrow.up").foregroundStyle(.white)
                             }
                         }
-                    } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.white) }
+                        .accessibilityLabel("Share photo")
+                        Menu {
+                            if isMyPhoto {
+                                Button("Edit", systemImage: "pencil") { showEdit = true }
+                                Button("Delete", systemImage: "trash", role: .destructive) { deleteConfirm = true }
+                            } else {
+                                Button("Report", systemImage: "flag") { showReport = true }
+                                if let author {
+                                    Button("Block \(author.displayName)", systemImage: "person.slash", role: .destructive) { showBlockConfirm = true }
+                                }
+                            }
+                        } label: { Image(systemName: "ellipsis.circle").foregroundStyle(.white) }
+                    }
                 }
             }
             .sheet(isPresented: $showEdit) { EditPhotoView(photo: photo) }
@@ -128,6 +152,26 @@ struct PhotoDetailView: View {
             } message: {
                 Text("Their content will be hidden across every node you share. They won't be notified.")
             }
+        }
+    }
+
+    /// Download the full-size Cloudinary image and present the system share
+    /// sheet. iOS handles the actual sharing surface (Messages, AirDrop, save
+    /// to Photos, etc.) so we don't have to build a per-channel UI.
+    private func shareImage() async {
+        guard let url = photo.fullURL else { return }
+        isLoadingShare = true
+        defer { isLoadingShare = false }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data) else { return }
+        await MainActor.run {
+            let vc = UIActivityViewController(activityItems: [image], applicationActivities: nil)
+            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let root = scene.windows.first?.rootViewController else { return }
+            var top = root
+            while let presented = top.presentedViewController { top = presented }
+            vc.popoverPresentationController?.sourceView = top.view
+            top.present(vc, animated: true)
         }
     }
 }
