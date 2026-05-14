@@ -226,3 +226,40 @@ enum StoryError: Error, LocalizedError {
     case notAuthenticated
     var errorDescription: String? { "You must be signed in to post a story." }
 }
+
+/// Tracks which story IDs the local user has already watched. Used to show
+/// accurate unseen ring state — total count was misleading once some stories
+/// were already viewed. Stored in UserDefaults; stays bounded since stories
+/// expire after 24h.
+final class SeenStoriesStore: @unchecked Sendable {
+    static let shared = SeenStoriesStore()
+
+    private let key = "node_seen_story_ids"
+    private let queue = DispatchQueue(label: "node.seenstories")
+    private var ids: Set<UUID>
+
+    private init() {
+        let raw = UserDefaults.standard.array(forKey: key) as? [String] ?? []
+        ids = Set(raw.compactMap { UUID(uuidString: $0) })
+    }
+
+    func isSeen(_ id: UUID) -> Bool {
+        queue.sync { ids.contains(id) }
+    }
+
+    func markSeen(_ id: UUID) {
+        queue.sync {
+            guard !ids.contains(id) else { return }
+            ids.insert(id)
+            UserDefaults.standard.set(ids.map(\.uuidString), forKey: key)
+        }
+    }
+
+    func unseenCount(in stories: [Story]) -> Int {
+        queue.sync { stories.filter { !ids.contains($0.id) }.count }
+    }
+}
+
+extension Notification.Name {
+    static let storiesDidMarkSeen = Notification.Name("node.storiesDidMarkSeen")
+}

@@ -69,37 +69,34 @@ struct StoryTrayView: View {
     }
 
     private var replayOverlay: some View {
-        ZStack {
-            Color.black.opacity(0.5).ignoresSafeArea()
-
-            VStack(spacing: 18) {
-                Button(action: replay) {
-                    VStack(spacing: 10) {
-                        Image(systemName: "arrow.counterclockwise")
-                            .font(.system(size: 34, weight: .semibold))
-                        Text("Replay")
-                            .font(.headline.weight(.semibold))
-                    }
-                    .foregroundStyle(.white)
-                    .frame(width: 150, height: 150)
-                    .background(Color.black.opacity(0.55))
-                    .clipShape(Circle())
-                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1))
+        // Keep the last frame fully visible behind the controls — no full-screen
+        // dim. A small glass-blur Replay button sits center, Close sits below.
+        VStack(spacing: 14) {
+            Button(action: replay) {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrow.counterclockwise")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Replay")
+                        .font(.system(.subheadline, design: .rounded, weight: .semibold))
                 }
-                .accessibilityLabel("Replay stories")
-
-                Button(action: onDismiss) {
-                    Text("Close")
-                        .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.9))
-                        .padding(.horizontal, 22)
-                        .padding(.vertical, 10)
-                        .background(Color.black.opacity(0.45))
-                        .clipShape(Capsule())
-                }
-                .accessibilityLabel("Close stories")
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(.ultraThinMaterial, in: Capsule())
+                .overlay(Capsule().stroke(.white.opacity(0.4), lineWidth: 0.5))
             }
+            .accessibilityLabel("Replay stories")
+
+            Button(action: onDismiss) {
+                Text("Close")
+                    .font(.system(.footnote, design: .rounded, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.85))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 8)
+            }
+            .accessibilityLabel("Close stories")
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .transition(.opacity)
     }
 

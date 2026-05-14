@@ -466,3 +466,311 @@ private struct CameraPicker: UIViewControllerRepresentable {
         }
     }
 }
+
+// MARK: - Embedded camera (ported from Sunzzari S62 / Miracles S9)
+
+/// Instagram-style in-app camera. Renders a fullscreen AVCaptureSession live
+/// preview with a shutter button, library thumbnail, flip-camera button,
+/// and close (X). Handles video permission and gracefully falls back to the
+/// library-only UI when access is denied or the device has no camera.
+struct CameraCaptureView: View {
+    let onCapture: (UIImage) -> Void
+    let onPickFromLibrary: () -> Void
+    let onClose: () -> Void
+
+    @StateObject private var model = CameraCaptureModel()
+
+    @State private var baseZoom: CGFloat = 1.0
+    @State private var currentZoom: CGFloat = 1.0
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            if model.permissionGranted {
+                CameraPreviewLayer(session: model.session)
+                    .ignoresSafeArea()
+                    .gesture(
+                        MagnificationGesture()
+                            .onChanged { value in
+                                let target = baseZoom * value
+                                currentZoom = model.setZoom(target)
+                            }
+                            .onEnded { _ in
+                                baseZoom = currentZoom
+                            }
+                    )
+
+                if currentZoom > 1.05 {
+                    Text(String(format: "%.1fx", currentZoom))
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 4)
+                        .background(.ultraThinMaterial, in: Capsule())
+                        .padding(.bottom, 130)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .allowsHitTesting(false)
+                }
+            } else if model.permissionDenied {
+                permissionDeniedView
+            }
+
+            VStack {
+                topRow
+                Spacer()
+                bottomRow
+            }
+        }
+        .task { await model.setup() }
+        .onDisappear { model.teardown() }
+        .onChange(of: model.capturedImage) { _, newValue in
+            if let img = newValue {
+                let cropped = img.croppedToAspectRatio(of: UIScreen.main.bounds.size)
+                onCapture(cropped)
+                model.capturedImage = nil
+            }
+        }
+    }
+
+    private var topRow: some View {
+        HStack {
+            Button(action: onClose) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(10)
+                    .background(.ultraThinMaterial, in: Circle())
+            }
+            Spacer()
+            if model.permissionGranted {
+                Button { model.flipCamera() } label: {
+                    Image(systemName: "arrow.triangle.2.circlepath.camera")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .padding(10)
+                        .background(.ultraThinMaterial, in: Circle())
+                }
+                .accessibilityLabel("Flip camera")
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    private var bottomRow: some View {
+        HStack {
+            Button(action: onPickFromLibrary) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(.ultraThinMaterial)
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "photo.on.rectangle")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .overlay(RoundedRectangle(cornerRadius: 8).stroke(.white.opacity(0.3), lineWidth: 0.5))
+            }
+            .accessibilityLabel("Choose from library")
+
+            Spacer()
+
+            if model.permissionGranted {
+                Button { model.capture() } label: {
+                    ZStack {
+                        Circle().stroke(Color.white, lineWidth: 4).frame(width: 76, height: 76)
+                        Circle().fill(Color.white).frame(width: 62, height: 62)
+                    }
+                }
+                .accessibilityLabel("Take photo")
+            } else {
+                Spacer().frame(width: 76, height: 76)
+            }
+
+            Spacer()
+            Color.clear.frame(width: 44, height: 44)
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 36)
+    }
+
+    private var permissionDeniedView: some View {
+        VStack(spacing: 14) {
+            Image(systemName: "camera.fill")
+                .font(.system(size: 44))
+                .foregroundStyle(.white.opacity(0.7))
+            Text("Camera access needed")
+                .font(.headline)
+                .foregroundStyle(.white)
+            Text("Enable Camera in Settings to take a photo, or pick one from your library.")
+                .font(.footnote)
+                .foregroundStyle(.white.opacity(0.7))
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            Button("Open Settings") {
+                if let url = URL(string: UIApplication.openSettingsURLString) {
+                    UIApplication.shared.open(url)
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .padding(.top, 4)
+        }
+    }
+}
+
+@MainActor
+final class CameraCaptureModel: NSObject, ObservableObject {
+    let session = AVCaptureSession()
+    @Published var permissionGranted = false
+    @Published var permissionDenied = false
+    @Published var capturedImage: UIImage?
+
+    private let sessionQueue = DispatchQueue(label: "node.camera.session")
+    private let photoOutput = AVCapturePhotoOutput()
+    private var videoInput: AVCaptureDeviceInput?
+    private var position: AVCaptureDevice.Position = .back
+
+    func setup() async {
+        switch AVCaptureDevice.authorizationStatus(for: .video) {
+        case .authorized:
+            permissionGranted = true
+            configureSession()
+        case .notDetermined:
+            let granted = await AVCaptureDevice.requestAccess(for: .video)
+            permissionGranted = granted
+            permissionDenied = !granted
+            if granted { configureSession() }
+        case .denied, .restricted:
+            permissionDenied = true
+        @unknown default:
+            permissionDenied = true
+        }
+    }
+
+    func teardown() {
+        sessionQueue.async { [session] in
+            if session.isRunning { session.stopRunning() }
+        }
+    }
+
+    func capture() {
+        let settings = AVCapturePhotoSettings()
+        settings.flashMode = .off
+        sessionQueue.async { [photoOutput, weak self] in
+            guard let self else { return }
+            photoOutput.capturePhoto(with: settings, delegate: self)
+        }
+    }
+
+    @discardableResult
+    func setZoom(_ factor: CGFloat) -> CGFloat {
+        guard let device = videoInput?.device else { return 1.0 }
+        let maxFactor = min(device.activeFormat.videoMaxZoomFactor, 10.0)
+        let clamped = max(1.0, min(maxFactor, factor))
+        do {
+            try device.lockForConfiguration()
+            device.videoZoomFactor = clamped
+            device.unlockForConfiguration()
+        } catch {
+            return device.videoZoomFactor
+        }
+        return clamped
+    }
+
+    func flipCamera() {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.session.beginConfiguration()
+            defer { self.session.commitConfiguration() }
+            if let current = self.videoInput { self.session.removeInput(current) }
+            let newPosition: AVCaptureDevice.Position = (self.position == .back) ? .front : .back
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: newPosition),
+                  let input = try? AVCaptureDeviceInput(device: device),
+                  self.session.canAddInput(input) else {
+                if let prev = self.videoInput, self.session.canAddInput(prev) { self.session.addInput(prev) }
+                return
+            }
+            self.session.addInput(input)
+            self.videoInput = input
+            self.position = newPosition
+        }
+    }
+
+    private func configureSession() {
+        sessionQueue.async { [weak self] in
+            guard let self else { return }
+            self.session.beginConfiguration()
+            self.session.sessionPreset = .photo
+            guard let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: self.position),
+                  let input = try? AVCaptureDeviceInput(device: device),
+                  self.session.canAddInput(input) else {
+                self.session.commitConfiguration()
+                return
+            }
+            self.session.addInput(input)
+            self.videoInput = input
+            if self.session.canAddOutput(self.photoOutput) { self.session.addOutput(self.photoOutput) }
+            self.session.commitConfiguration()
+            self.session.startRunning()
+        }
+    }
+}
+
+extension CameraCaptureModel: AVCapturePhotoCaptureDelegate {
+    nonisolated func photoOutput(_ output: AVCapturePhotoOutput, didFinishProcessingPhoto photo: AVCapturePhoto, error: Error?) {
+        guard error == nil,
+              let data = photo.fileDataRepresentation(),
+              let image = UIImage(data: data) else { return }
+        let oriented = image.normalizedOrientation()
+        Task { @MainActor in self.capturedImage = oriented }
+    }
+}
+
+struct CameraPreviewLayer: UIViewRepresentable {
+    let session: AVCaptureSession
+
+    func makeUIView(context: Context) -> PreviewUIView {
+        let view = PreviewUIView()
+        view.videoPreviewLayer.session = session
+        view.videoPreviewLayer.videoGravity = .resizeAspectFill
+        return view
+    }
+
+    func updateUIView(_ uiView: PreviewUIView, context: Context) {}
+
+    final class PreviewUIView: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        var videoPreviewLayer: AVCaptureVideoPreviewLayer {
+            // swiftlint:disable:next force_cast
+            layer as! AVCaptureVideoPreviewLayer
+        }
+    }
+}
+
+extension UIImage {
+    func croppedToAspectRatio(of target: CGSize) -> UIImage {
+        guard let cg = cgImage, target.width > 0, target.height > 0 else { return self }
+        let pixelWidth = CGFloat(cg.width)
+        let pixelHeight = CGFloat(cg.height)
+        let targetAR = target.width / target.height
+        let imageAR = pixelWidth / pixelHeight
+        let cropPixelRect: CGRect
+        if imageAR > targetAR {
+            let newWidth = pixelHeight * targetAR
+            cropPixelRect = CGRect(x: (pixelWidth - newWidth) / 2, y: 0, width: newWidth, height: pixelHeight)
+        } else {
+            let newHeight = pixelWidth / targetAR
+            cropPixelRect = CGRect(x: 0, y: (pixelHeight - newHeight) / 2, width: pixelWidth, height: newHeight)
+        }
+        guard let cropped = cg.cropping(to: cropPixelRect) else { return self }
+        return UIImage(cgImage: cropped, scale: scale, orientation: .up)
+    }
+
+    func normalizedOrientation() -> UIImage {
+        if imageOrientation == .up { return self }
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = scale
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { _ in draw(in: CGRect(origin: .zero, size: size)) }
+    }
+}
